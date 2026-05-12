@@ -1,0 +1,37 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Lanzar Agente",
+            "request": "launch",
+            "mainClass": "jade.Boot",
+            "args": "-gui ${fileBasenameNoExtension}:com.sistemainteligentes.${fileBasenameNoExtension}"
+        },
+        {
+            "type": "java",
+            "name": "Unir Agente",
+            "request": "launch",
+            "mainClass": "jade.Boot",
+            "args": "-main false -host 127.0.0.1 ${fileBasenameNoExtension}:com.sistemainteligentes.${fileBasenameNoExtension}"
+        },
+        {
+            "type": "java",
+            "name": "Lanzar Agente con parametros",
+            "request": "launch",
+            "mainClass": "jade.Boot",
+            "args": "-gui ${fileBasenameNoExtension}:com.sistemainteligentes.${fileBasenameNoExtension}(${input:misParametros})"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "misParametros",
+            "type": "promptString",
+            "description": "Escribe los parámetros separados por comas y sin espacios (ej: Hola,123,Prueba)",
+            "default": "param1,param2"
+        }
+    ]
+}
