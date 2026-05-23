@@ -1,0 +1,26 @@
+# Maven
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# Java
+*.class
+
+# JADE runtime
+APDescription.txt
+MTPs-Main-Container.txt
+
+# API keys / secretos locales (NUNCA commitear)
+apikeys.properties
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db

@@ -30,6 +30,13 @@
       <scope>system</scope>
       <systemPath>${project.basedir}/lib/jade.jar</systemPath>
     </dependency>
+    <!-- Para parsear las respuestas JSON de OpenWeatherMap y OpenTripMap
+         (usado por AgentePercepcionWeb / FuentePercepcion). -->
+    <dependency>
+      <groupId>org.json</groupId>
+      <artifactId>json</artifactId>
+      <version>20231013</version>
+    </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-api</artifactId>

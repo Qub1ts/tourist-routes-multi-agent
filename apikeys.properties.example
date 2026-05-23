@@ -1,0 +1,23 @@
+# Copia este fichero a `apikeys.properties` (en la raiz del proyecto) y
+# rellena las claves. `apikeys.properties` esta en .gitignore para que
+# nunca se suba al repo. Tambien puedes ignorar este fichero y exportar
+# las variables de entorno equivalentes:
+#
+#   export OPENWEATHER_API_KEY=xxxx
+#   export OPENTRIPMAP_API_KEY=xxxx
+#   export RAPIDAPI_KEY=xxxx
+#   export TICKETMASTER_API_KEY=xxxx
+
+# OpenWeatherMap (clima)
+openweather.api.key=
+
+# OpenTripMap (lugares turisticos)
+opentripmap.api.key=
+
+# RapidAPI: clave generica del panel de RapidAPI. El AgenteHoteles usa
+# el host "booking-com15.p.rapidapi.com" -> subscribirse en
+# https://rapidapi.com/DataCrawler/api/booking-com15
+rapidapi.key=
+
+# Ticketmaster Discovery (eventos)
+ticketmaster.api.key=
