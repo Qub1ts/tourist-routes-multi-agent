@@ -43,6 +43,13 @@ for clase in AgenteClima AgenteLugares AgenteHoteles AgenteEventos; do
   fi
 done
 
+# El AgenteRecomendador y AgenteInterfaz son opcionales: el sistema arranca
+# igualmente y los agentes de percepcion mostraran FAILURE hasta que esten.
+RECOMENDADOR_OK=true
+INTERFAZ_OK=true
+[ -f "target/classes/com/sistemainteligentes/recomendador/AgenteRecomendador.class" ] || RECOMENDADOR_OK=false
+[ -f "target/classes/com/sistemainteligentes/interfaz/AgenteInterfaz.class" ] || INTERFAZ_OK=false
+
 # 2. Localizar org.json en el repositorio local de Maven.
 JSON_JAR="$HOME/.m2/repository/org/json/json/20231013/json-20231013.jar"
 if [ ! -f "$JSON_JAR" ]; then
@@ -62,16 +69,33 @@ PERCEPCION="$PERCEPCION;lugares:com.sistemainteligentes.percepcion.AgenteLugares
 PERCEPCION="$PERCEPCION;hoteles:com.sistemainteligentes.percepcion.AgenteHoteles"
 PERCEPCION="$PERCEPCION;eventos:com.sistemainteligentes.percepcion.AgenteEventos"
 
+EXTRA=""
+if [ "$INTERFAZ_OK" = "true" ]; then
+  # IMPORTANTE: el interfaz se registra ANTES que el recomendador para que
+  # cuando el recomendador haga su primer DFService.search ya lo encuentre.
+  EXTRA="$EXTRA;interfaz:com.sistemainteligentes.interfaz.AgenteInterfaz"
+fi
+if [ "$RECOMENDADOR_OK" = "true" ]; then
+  EXTRA="$EXTRA;recomendador:com.sistemainteligentes.recomendador.AgenteRecomendador"
+fi
+
 if [ "$1" = "--headless" ]; then
-  AGENTES="$PERCEPCION"
-  echo "[run.sh] Modo headless: solo agentes de percepcion."
+  AGENTES="$PERCEPCION$EXTRA"
+  echo "[run.sh] Modo headless: percepcion + recomendador/interfaz si existen."
 else
-  AGENTES="$PERCEPCION;usuario:com.sistemainteligentes.usuario.AgenteUsuario"
+  AGENTES="$PERCEPCION$EXTRA;usuario:com.sistemainteligentes.usuario.AgenteUsuario"
+fi
+
+if [ "$RECOMENDADOR_OK" = "false" ]; then
+  echo "[run.sh] (info) AgenteRecomendador no compilado, se lanza el sistema sin el."
+fi
+if [ "$INTERFAZ_OK" = "false" ]; then
+  echo "[run.sh] (info) AgenteInterfaz no compilado, se lanza el sistema sin el."
 fi
 
 # 5. Aviso si las claves no estan configuradas (no es bloqueante).
 if [ -z "$OPENWEATHER_API_KEY" ] && [ -z "$OPENTRIPMAP_API_KEY" ] \
-   && [ -z "$AMADEUS_CLIENT_ID" ] && [ -z "$TICKETMASTER_API_KEY" ] \
+   && [ -z "$RAPIDAPI_KEY" ] && [ -z "$TICKETMASTER_API_KEY" ] \
    && [ ! -f "apikeys.properties" ]; then
   echo "[run.sh] (info) No hay API keys configuradas. Cada agente caera"
   echo "         a su catalogo simulado (Madrid/Barcelona). Para usar"
