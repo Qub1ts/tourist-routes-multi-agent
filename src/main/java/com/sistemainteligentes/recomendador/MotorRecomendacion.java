@@ -11,6 +11,24 @@ import java.util.stream.Collectors;
 public class MotorRecomendacion {
 
     public String generarRecomendacion(List<InformePercepcion> fragmentos) {
+        return generarRecomendacion(fragmentos, 0, false, new ArrayList<>());
+    }
+
+    public String generarRecomendacionAlternativa(
+            List<InformePercepcion> fragmentos,
+            int intento,
+            List<String> nombresExcluidos
+    ) {
+        int desplazamiento = Math.max(1, intento - 1);
+        return generarRecomendacion(fragmentos, desplazamiento, true, nombresExcluidos);
+    }
+
+    private String generarRecomendacion(
+            List<InformePercepcion> fragmentos,
+            int desplazamiento,
+            boolean esAlternativa,
+            List<String> nombresExcluidos
+    ) {
         if (fragmentos == null || fragmentos.isEmpty()) {
             return "No se recibieron informes de percepción.";
         }
@@ -38,9 +56,43 @@ public class MotorRecomendacion {
 
         Collections.sort(candidatos);
 
-        List<CandidatoRuta> lugares = filtrarPorTipo(candidatos, CandidatoRuta.Tipo.LUGAR, 3);
-        List<CandidatoRuta> hoteles = filtrarPorTipo(candidatos, CandidatoRuta.Tipo.HOTEL, 1);
-        List<CandidatoRuta> eventos = filtrarPorTipo(candidatos, CandidatoRuta.Tipo.EVENTO, 2);
+        Set<String> excluidos = nombresExcluidos == null
+                ? new HashSet<>()
+                : nombresExcluidos.stream()
+                        .map(this::normalizarTexto)
+                        .collect(Collectors.toSet());
+
+        List<CandidatoRuta> candidatosFiltrados = candidatos.stream()
+                .filter(c -> !excluidos.contains(normalizarTexto(c.getNombre())))
+                .collect(Collectors.toList());
+
+        if (candidatosFiltrados.isEmpty()) {
+            candidatosFiltrados = candidatos;
+        }
+
+        int lugaresDeseados = Math.max(1, dias);
+        int eventosDeseados = Math.max(1, dias);
+
+        List<CandidatoRuta> lugares = filtrarPorTipo(
+                candidatosFiltrados,
+                CandidatoRuta.Tipo.LUGAR,
+                lugaresDeseados,
+                desplazamiento
+        );
+
+        List<CandidatoRuta> hoteles = filtrarPorTipo(
+                candidatosFiltrados,
+                CandidatoRuta.Tipo.HOTEL,
+                1,
+                desplazamiento
+        );
+
+        List<CandidatoRuta> eventos = filtrarPorTipo(
+                candidatosFiltrados,
+                CandidatoRuta.Tipo.EVENTO,
+                eventosDeseados,
+                desplazamiento
+        );
 
         return construirRespuesta(
                 ciudad,
@@ -52,8 +104,85 @@ public class MotorRecomendacion {
                 lugares,
                 hoteles,
                 eventos,
-                candidatos
+                candidatosFiltrados,
+                esAlternativa,
+                desplazamiento,
+                nombresExcluidos
         );
+    }
+
+    public List<String> extraerNombresSeleccionados(
+            List<InformePercepcion> fragmentos,
+            int desplazamiento,
+            List<String> nombresExcluidos
+    ) {
+        List<String> nombres = new ArrayList<>();
+
+        if (fragmentos == null || fragmentos.isEmpty()) {
+            return nombres;
+        }
+
+        PreferenciasUsuario preferencias = fragmentos.get(0).getPreferencias();
+
+        String intereses = leerString(preferencias, "getIntereses", "");
+        int dias = leerInt(preferencias, "getDiasDisponibles", 1);
+        double presupuesto = leerDouble(preferencias, "getPresupuestoMaximo", 50.0);
+        double presupuestoPorDia = presupuesto / Math.max(dias, 1);
+
+        List<CandidatoRuta> candidatos = construirCandidatos(fragmentos);
+        double scoreClimaGlobal = calcularScoreClimaGlobal(fragmentos);
+
+        for (CandidatoRuta candidato : candidatos) {
+            candidato.setScoreIntereses(calcularSimilitudIntereses(intereses, candidato));
+            candidato.setScorePresupuesto(calcularScorePresupuesto(candidato, presupuestoPorDia));
+            candidato.setScoreClima(scoreClimaGlobal);
+            candidato.setScorePopularidad(calcularScorePopularidad(candidato));
+            candidato.setScoreDiversidad(calcularScoreDiversidad(candidato));
+            candidato.calcularScoreFinal();
+        }
+
+        Collections.sort(candidatos);
+
+        Set<String> excluidos = nombresExcluidos == null
+                ? new HashSet<>()
+                : nombresExcluidos.stream()
+                        .map(this::normalizarTexto)
+                        .collect(Collectors.toSet());
+
+        List<CandidatoRuta> candidatosFiltrados = candidatos.stream()
+                .filter(c -> !excluidos.contains(normalizarTexto(c.getNombre())))
+                .collect(Collectors.toList());
+
+        if (candidatosFiltrados.isEmpty()) {
+            candidatosFiltrados = candidatos;
+        }
+
+        List<CandidatoRuta> lugares = filtrarPorTipo(
+                candidatosFiltrados,
+                CandidatoRuta.Tipo.LUGAR,
+                Math.max(1, dias),
+                desplazamiento
+        );
+
+        List<CandidatoRuta> hoteles = filtrarPorTipo(
+                candidatosFiltrados,
+                CandidatoRuta.Tipo.HOTEL,
+                1,
+                desplazamiento
+        );
+
+        List<CandidatoRuta> eventos = filtrarPorTipo(
+                candidatosFiltrados,
+                CandidatoRuta.Tipo.EVENTO,
+                Math.max(1, dias),
+                desplazamiento
+        );
+
+        lugares.forEach(c -> nombres.add(c.getNombre()));
+        hoteles.forEach(c -> nombres.add(c.getNombre()));
+        eventos.forEach(c -> nombres.add(c.getNombre()));
+
+        return nombres;
     }
 
     private List<CandidatoRuta> construirCandidatos(List<InformePercepcion> fragmentos) {
@@ -121,12 +250,6 @@ public class MotorRecomendacion {
         return new CandidatoRuta(tipo, elemento, nombre, descripcion, coste);
     }
 
-    /**
-     * Similitud inspirada en recuperación de información:
-     * - Preferencias del usuario = consulta.
-     * - Candidato turístico = documento.
-     * - Se usa una expansión ontológica ligera antes de calcular coincidencias.
-     */
     private double calcularSimilitudIntereses(String interesesUsuario, CandidatoRuta candidato) {
         Set<String> queryOriginal = tokenizar(interesesUsuario);
         Set<String> queryExpandida = expandirConOntologiaTuristica(queryOriginal);
@@ -159,14 +282,6 @@ public class MotorRecomendacion {
         return limitar01(jaccard + bonusOntologico);
     }
 
-    /**
-     * Mini-ontología turística manual.
-     *
-     * Permite inferir relaciones semánticas simples:
-     * - museo está relacionado con cultura, arte, exposición.
-     * - comida está relacionada con restaurante, mercado, tapas.
-     * - naturaleza está relacionada con parque, jardín, senderismo.
-     */
     private Set<String> expandirConOntologiaTuristica(Set<String> intereses) {
         Map<String, Set<String>> ontologia = new HashMap<>();
 
@@ -349,9 +464,22 @@ public class MotorRecomendacion {
             List<CandidatoRuta> lugares,
             List<CandidatoRuta> hoteles,
             List<CandidatoRuta> eventos,
-            List<CandidatoRuta> rankingGlobal
+            List<CandidatoRuta> rankingGlobal,
+            boolean esAlternativa,
+            int desplazamiento,
+            List<String> nombresExcluidos
     ) {
         StringBuilder sb = new StringBuilder();
+
+        if (esAlternativa) {
+            sb.append("NUEVA PROPUESTA ALTERNATIVA\n");
+            sb.append("El usuario rechazo la ruta anterior. ");
+            sb.append("El recomendador excluyo candidatos ya mostrados y recalculo la seleccion.\n");
+            sb.append("Desplazamiento aplicado al ranking: ").append(desplazamiento).append("\n");
+            sb.append("Candidatos excluidos previamente: ")
+                    .append(nombresExcluidos == null ? 0 : nombresExcluidos.size())
+                    .append("\n\n");
+        }
 
         sb.append("RUTA RECOMENDADA PARA ").append(ciudad.toUpperCase()).append("\n\n");
 
@@ -365,8 +493,9 @@ public class MotorRecomendacion {
         sb.append("Método inteligente usado\n");
         sb.append("- Recuperación de información: las preferencias se tratan como consulta.\n");
         sb.append("- Ranking: cada lugar, hotel y evento recibe un score final.\n");
-        sb.append("- Ontología turística ligera: expande intereses como museo → arte/cultura/exposición.\n");
-        sb.append("- Feature engineering: intereses, presupuesto, clima, popularidad y diversidad.\n\n");
+        sb.append("- Ontología turística ligera: expande intereses como museo -> arte/cultura/exposición.\n");
+        sb.append("- Feature engineering: intereses, presupuesto, clima, popularidad y diversidad.\n");
+        sb.append("- Feedback del usuario: si se rechaza una ruta, se excluyen candidatos ya mostrados.\n\n");
 
         sb.append("Fórmula de scoring\n");
         sb.append("score = 0.45 intereses + 0.25 presupuesto + 0.15 clima + 0.10 popularidad + 0.05 diversidad\n\n");
@@ -374,9 +503,41 @@ public class MotorRecomendacion {
         sb.append("Evaluación del clima\n");
         sb.append("- Score climático global: ").append(String.format("%.2f", scoreClima)).append("/1.00\n\n");
 
-        sb.append("Lugares recomendados\n");
+        sb.append("Itinerario propuesto\n");
+
+        CandidatoRuta hotel = hoteles.isEmpty() ? null : hoteles.get(0);
+
+        for (int dia = 1; dia <= Math.max(1, dias); dia++) {
+            sb.append("\nDía ").append(dia).append("\n");
+
+            CandidatoRuta lugar = obtenerPorIndiceCircular(lugares, dia - 1);
+            CandidatoRuta evento = obtenerPorIndiceCircular(eventos, dia - 1);
+
+            if (lugar != null) {
+                sb.append("- Lugar sugerido: ").append(lugar.getNombre())
+                        .append(" (").append(String.format("%.2f", lugar.getCosteEstimado())).append(" EUR)\n");
+            } else {
+                sb.append("- Lugar sugerido: no disponible\n");
+            }
+
+            if (evento != null) {
+                sb.append("- Evento sugerido: ").append(evento.getNombre())
+                        .append(" (").append(String.format("%.2f", evento.getCosteEstimado())).append(" EUR)\n");
+            } else {
+                sb.append("- Evento sugerido: no disponible\n");
+            }
+
+            if (hotel != null) {
+                sb.append("- Hotel base: ").append(hotel.getNombre())
+                        .append(" (").append(String.format("%.2f", hotel.getCosteEstimado())).append(" EUR/noche)\n");
+            } else {
+                sb.append("- Hotel base: no disponible\n");
+            }
+        }
+
+        sb.append("\nLugares seleccionados\n");
         if (lugares.isEmpty()) {
-            sb.append("- No se recibieron lugares disponibles.\n");
+            sb.append("- No hay lugares alternativos suficientes. Se agotaron las opciones disponibles.\n");
         } else {
             for (int i = 0; i < lugares.size(); i++) {
                 agregarCandidato(sb, i + 1, lugares.get(i));
@@ -385,14 +546,14 @@ public class MotorRecomendacion {
 
         sb.append("\nHotel recomendado\n");
         if (hoteles.isEmpty()) {
-            sb.append("- No se recibieron hoteles disponibles.\n");
+            sb.append("- No hay hoteles alternativos suficientes. Se agotaron las opciones disponibles.\n");
         } else {
             agregarCandidato(sb, 1, hoteles.get(0));
         }
 
-        sb.append("\nEventos sugeridos\n");
+        sb.append("\nEventos seleccionados\n");
         if (eventos.isEmpty()) {
-            sb.append("- No se recibieron eventos disponibles.\n");
+            sb.append("- No hay eventos alternativos suficientes. Se agotaron las opciones disponibles.\n");
         } else {
             for (int i = 0; i < eventos.size(); i++) {
                 agregarCandidato(sb, i + 1, eventos.get(i));
@@ -432,6 +593,14 @@ public class MotorRecomendacion {
         return sb.toString();
     }
 
+    private CandidatoRuta obtenerPorIndiceCircular(List<CandidatoRuta> lista, int indice) {
+        if (lista == null || lista.isEmpty()) {
+            return null;
+        }
+
+        return lista.get(indice % lista.size());
+    }
+
     private void agregarCandidato(StringBuilder sb, int posicion, CandidatoRuta candidato) {
         sb.append(posicion).append(". ").append(candidato.getNombre()).append("\n");
         sb.append("   Tipo: ").append(candidato.getTipo()).append("\n");
@@ -454,12 +623,33 @@ public class MotorRecomendacion {
     private List<CandidatoRuta> filtrarPorTipo(
             List<CandidatoRuta> candidatos,
             CandidatoRuta.Tipo tipo,
-            int limite
+            int limite,
+            int desplazamiento
     ) {
-        return candidatos.stream()
+        List<CandidatoRuta> filtrados = candidatos.stream()
                 .filter(c -> c.getTipo() == tipo)
-                .limit(limite)
                 .collect(Collectors.toList());
+
+        if (filtrados.isEmpty()) {
+            return filtrados;
+        }
+
+        int inicio = Math.min(
+                Math.max(0, desplazamiento),
+                Math.max(0, filtrados.size() - 1)
+        );
+
+        List<CandidatoRuta> resultado = new ArrayList<>();
+
+        for (int i = inicio; i < filtrados.size() && resultado.size() < limite; i++) {
+            resultado.add(filtrados.get(i));
+        }
+
+        for (int i = 0; i < inicio && resultado.size() < limite; i++) {
+            resultado.add(filtrados.get(i));
+        }
+
+        return resultado;
     }
 
     private List<Object> extraerElementos(InformePercepcion informe) {
@@ -484,7 +674,6 @@ public class MotorRecomendacion {
                 }
 
             } catch (Exception ignored) {
-                // Se ignoran getters no relevantes.
             }
         }
 
@@ -597,5 +786,14 @@ public class MotorRecomendacion {
         if (texto == null) return "";
         if (texto.length() <= max) return texto;
         return texto.substring(0, max) + "...";
+    }
+
+    private String normalizarTexto(String texto) {
+        if (texto == null) return "";
+
+        return Normalizer.normalize(texto, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase()
+                .trim();
     }
 }

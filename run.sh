@@ -1,86 +1,141 @@
 #!/usr/bin/env bash
-# Script de arranque del sistema multiagente.
+# ============================================================
+# Script de arranque del sistema multiagente turístico
+# ============================================================
 #
-# Lanza la plataforma JADE con todos los agentes implementados en este
-# repo (AgenteUsuario + 4 agentes de percepcion). Cuando los companeros
-# integren AgenteRecomendador y AgenteInterfaz solo hay que anadirlos a
-# la variable AGENTES de mas abajo.
+# Lanza:
+#   - AgenteUsuario
+#   - AgenteClima
+#   - AgenteLugares
+#   - AgenteHoteles
+#   - AgenteEventos
+#   - AgenteRecomendador
+#   - AgenteInterfaz
 #
 # Uso:
-#   ./run.sh             # Lanza usuario + los 4 de percepcion (modo grafico)
-#   ./run.sh --headless  # Solo los 4 de percepcion (servidores sin display)
+#   ./run.sh
+#   ./run.sh --headless
 #
 # Las API keys se toman de:
-#   1. Variables de entorno (OPENWEATHER_API_KEY, OPENTRIPMAP_API_KEY,
-#      AMADEUS_CLIENT_ID, AMADEUS_CLIENT_SECRET, TICKETMASTER_API_KEY).
-#   2. Si no estan, del fichero apikeys.properties en la raiz (gitignored).
-#   3. Si tampoco estan, cada agente usa su catalogo simulado de respaldo.
+#   1. Variables de entorno
+#   2. apikeys.properties
+#   3. Catálogo simulado de respaldo
+# ============================================================
 
 set -e
 
 cd "$(dirname "$0")"
 
-# 1. Verificar que tenemos las clases compiladas.
+# ============================================================
+# 1. Compilar automáticamente si hace falta
+# ============================================================
+
 if [ ! -d "target/classes" ]; then
   echo "[run.sh] Compilando proyecto con Maven..."
   mvn -q -DskipTests compile
 fi
 
-if [ ! -f "target/classes/com/sistemainteligentes/usuario/AgenteUsuario.class" ]; then
-  echo "[run.sh] AVISO: AgenteUsuario no esta compilado."
-  echo "         Estas en la rama '$(git branch --show-current)'?"
-  echo "         La rama 'master' contiene TODOS los agentes."
-  echo "         Para cambiar: git checkout master"
-  exit 1
-fi
+# ============================================================
+# 2. Verificar clases principales
+# ============================================================
 
-for clase in AgenteClima AgenteLugares AgenteHoteles AgenteEventos; do
-  if [ ! -f "target/classes/com/sistemainteligentes/percepcion/$clase.class" ]; then
-    echo "[run.sh] AVISO: $clase no esta compilado."
-    echo "         Estas en la rama '$(git branch --show-current)'?"
-    echo "         La rama 'master' contiene los cuatro agentes de percepcion."
+CLASES=(
+  "usuario/AgenteUsuario"
+  "percepcion/AgenteClima"
+  "percepcion/AgenteLugares"
+  "percepcion/AgenteHoteles"
+  "percepcion/AgenteEventos"
+  "recomendador/AgenteRecomendador"
+  "interfaz/AgenteInterfaz"
+)
+
+for clase in "${CLASES[@]}"; do
+  if [ ! -f "target/classes/com/sistemainteligentes/$clase.class" ]; then
+    echo "[run.sh] ERROR: No existe:"
+    echo "         target/classes/com/sistemainteligentes/$clase.class"
+    echo ""
+    echo "Compila el proyecto:"
+    echo "    mvn -DskipTests compile"
     exit 1
   fi
 done
 
-# 2. Localizar org.json en el repositorio local de Maven.
+# ============================================================
+# 3. Localizar org.json
+# ============================================================
+
 JSON_JAR="$HOME/.m2/repository/org/json/json/20231013/json-20231013.jar"
+
 if [ ! -f "$JSON_JAR" ]; then
-  echo "[run.sh] Descargando org.json desde Maven Central..."
-  mvn -q -DskipTests dependency:resolve >/dev/null
+  echo "[run.sh] Resolviendo dependencia org.json..."
+  mvn -q dependency:resolve
 fi
 
-# 3. Construir el classpath.
+# ============================================================
+# 4. Construir classpath
+# ============================================================
+
 CP="target/classes:lib/jade.jar:$JSON_JAR"
 
-# 4. Decidir que agentes lanzar.
-#    OJO: JADE espera la lista de agentes en UN UNICO argumento separados
-#    por ';' (no por espacios), precedido por '-agents'. Ver tema 4 de
-#    las transparencias.
+# ============================================================
+# 5. Definir agentes
+# ============================================================
+
 PERCEPCION="clima:com.sistemainteligentes.percepcion.AgenteClima"
 PERCEPCION="$PERCEPCION;lugares:com.sistemainteligentes.percepcion.AgenteLugares"
 PERCEPCION="$PERCEPCION;hoteles:com.sistemainteligentes.percepcion.AgenteHoteles"
 PERCEPCION="$PERCEPCION;eventos:com.sistemainteligentes.percepcion.AgenteEventos"
 
+RECOMENDADOR="recomendador:com.sistemainteligentes.recomendador.AgenteRecomendador"
+
+INTERFAZ="interfaz:com.sistemainteligentes.interfaz.AgenteInterfaz"
+
+USUARIO="usuario:com.sistemainteligentes.usuario.AgenteUsuario"
+
+# ============================================================
+# 6. Headless o modo gráfico
+# ============================================================
+
 if [ "$1" = "--headless" ]; then
-  AGENTES="$PERCEPCION"
-  echo "[run.sh] Modo headless: solo agentes de percepcion."
+
+  AGENTES="$PERCEPCION;$RECOMENDADOR;$INTERFAZ"
+
+  echo "[run.sh] Ejecutando en modo headless..."
+
 else
-  AGENTES="$PERCEPCION;usuario:com.sistemainteligentes.usuario.AgenteUsuario"
+
+  AGENTES="$PERCEPCION;$RECOMENDADOR;$INTERFAZ;$USUARIO"
+
 fi
 
-# 5. Aviso si las claves no estan configuradas (no es bloqueante).
-if [ -z "$OPENWEATHER_API_KEY" ] && [ -z "$OPENTRIPMAP_API_KEY" ] \
-   && [ -z "$AMADEUS_CLIENT_ID" ] && [ -z "$TICKETMASTER_API_KEY" ] \
+# ============================================================
+# 7. Aviso sobre APIs
+# ============================================================
+
+if [ -z "$OPENWEATHER_API_KEY" ] \
+   && [ -z "$OPENTRIPMAP_API_KEY" ] \
+   && [ -z "$RAPIDAPI_KEY" ] \
+   && [ -z "$TICKETMASTER_API_KEY" ] \
    && [ ! -f "apikeys.properties" ]; then
-  echo "[run.sh] (info) No hay API keys configuradas. Cada agente caera"
-  echo "         a su catalogo simulado (Madrid/Barcelona). Para usar"
-  echo "         las APIs reales: copia apikeys.properties.example a"
-  echo "         apikeys.properties y rellena las claves, o exporta las"
-  echo "         variables de entorno (ver README seccion 4.6)."
+
+  echo "[run.sh] AVISO:"
+  echo "No se encontraron API keys."
+  echo "El sistema usará catálogos simulados."
+  echo ""
+  echo "Crea:"
+  echo "    apikeys.properties"
+  echo ""
+  echo "o exporta variables de entorno."
 fi
 
-# 6. Lanzar JADE.
-echo "[run.sh] Lanzando JADE con:"
-echo "         $AGENTES"
+# ============================================================
+# 8. Lanzar JADE
+# ============================================================
+
+echo ""
+echo "[run.sh] Lanzando plataforma JADE..."
+echo ""
+echo "$AGENTES"
+echo ""
+
 exec java -cp "$CP" jade.Boot -gui -agents "$AGENTES"
