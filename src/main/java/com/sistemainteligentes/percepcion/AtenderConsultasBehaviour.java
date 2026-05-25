@@ -13,159 +13,144 @@ import jade.lang.acl.MessageTemplate;
 import jade.lang.acl.UnreadableException;
 
 import com.sistemainteligentes.comun.InformePercepcion;
+import com.sistemainteligentes.comun.InformeReplanificacion;
 import com.sistemainteligentes.comun.PreferenciasUsuario;
+import com.sistemainteligentes.comun.SolicitudReplanificacion;
 
-/**
- * Comportamiento ciclico que atiende las peticiones que llegan al agente
- * de percepcion. Para cada REQUEST con ontologia
- * {@link BasePercepcionAgent#ONTOLOGIA_ENTRADA}:
- *
- *   1. Deserializa el contenido como {@link PreferenciasUsuario}.
- *   2. Delega en {@link BasePercepcionAgent#consultarFuente} para llamar
- *      a la API externa.
- *   3. Envia un INFORM de ACK al usuario (para que la interfaz pueda
- *      decirle "el agente X ya tiene sus datos").
- *   4. Reenvia un REQUEST al AgenteRecomendador con el mismo
- *      conversationId, llevando el {@link InformePercepcion} obtenido.
- *
- * Filtra los mensajes con {@link MessageTemplate} (REQUEST + ontologia)
- * y se bloquea con {@code block()} entre peticiones. Cumple el requisito
- * de "filtro de mensajes en modo bloqueante" del enunciado.
- *
- * El campo conversationId del mensaje de salida es el mismo que el de
- * entrada para que el AgenteRecomendador pueda correlacionar los
- * fragmentos que mandan los demas agentes de percepcion.
- */
-class AtenderConsultasBehaviour extends CyclicBehaviour {
+public class AtenderConsultasBehaviour extends CyclicBehaviour {
 
     private static final long serialVersionUID = 1L;
 
-    private static final MessageTemplate FILTRO = MessageTemplate.and(
-        MessageTemplate.MatchPerformative(ACLMessage.REQUEST),
-        MessageTemplate.MatchOntology(BasePercepcionAgent.ONTOLOGIA_ENTRADA));
+    private final BasePercepcionAgent agente;
 
-    private final BasePercepcionAgent agentePercepcion;
+    private static final MessageTemplate FILTRO_CONSULTA_NORMAL =
+            MessageTemplate.and(
+                    MessageTemplate.MatchPerformative(ACLMessage.REQUEST),
+                    MessageTemplate.MatchOntology(BasePercepcionAgent.ONTOLOGIA_ENTRADA)
+            );
 
-    AtenderConsultasBehaviour(BasePercepcionAgent agente) {
+    private static final MessageTemplate FILTRO_REPLANIFICACION =
+            MessageTemplate.and(
+                    MessageTemplate.MatchPerformative(ACLMessage.REQUEST),
+                    MessageTemplate.MatchOntology(BasePercepcionAgent.ONTOLOGIA_REPLANIFICACION)
+            );
+
+    private static final MessageTemplate FILTRO =
+            MessageTemplate.or(FILTRO_CONSULTA_NORMAL, FILTRO_REPLANIFICACION);
+
+    public AtenderConsultasBehaviour(BasePercepcionAgent agente) {
         super(agente);
-        this.agentePercepcion = agente;
+        this.agente = agente;
     }
 
     @Override
     public void action() {
-        ACLMessage peticion = myAgent.receive(FILTRO);
-        if (peticion == null) {
+        ACLMessage msg = myAgent.receive(FILTRO);
+
+        if (msg == null) {
             block();
             return;
         }
-        procesar(peticion);
+
+        String ontologia = msg.getOntology();
+
+        if (BasePercepcionAgent.ONTOLOGIA_ENTRADA.equals(ontologia)) {
+            atenderConsultaNormal(msg);
+        } else if (BasePercepcionAgent.ONTOLOGIA_REPLANIFICACION.equals(ontologia)) {
+            atenderReplanificacion(msg);
+        }
     }
 
-    private void procesar(ACLMessage peticion) {
-        PreferenciasUsuario preferencias = leerPreferencias(peticion);
-        if (preferencias == null) {
-            return; // el FAILURE ya se envio dentro de leerPreferencias()
-        }
-
-        String etiqueta = agentePercepcion.nombreFuente();
-        String agName = myAgent.getLocalName();
-
-        System.out.println("[" + agName + "] Consulta recibida de "
-            + peticion.getSender().getLocalName() + ": " + preferencias);
-
-        InformePercepcion informe = agentePercepcion.consultarFuente(preferencias);
-        if (informe == null) {
-            informe = new InformePercepcion(etiqueta,
-                preferencias.getCiudad(), preferencias);
-            informe.setErrorMensaje("El agente devolvio null inesperadamente.");
-        }
-
-        notificarAck(peticion, informe);
-
-        AID recomendador = buscarRecomendador();
-        if (recomendador == null) {
-            informarAlUsuarioDeFallo(peticion,
-                "No hay AgenteRecomendador registrado en el DF; el "
-                + "informe de " + etiqueta + " no se ha podido entregar.");
-            return;
-        }
-
-        reenviar(peticion, informe, recomendador);
-    }
-
-    private PreferenciasUsuario leerPreferencias(ACLMessage peticion) {
+    private void atenderConsultaNormal(ACLMessage msg) {
         try {
-            Object contenido = peticion.getContentObject();
-            if (!(contenido instanceof PreferenciasUsuario)) {
-                informarAlUsuarioDeFallo(peticion,
-                    "Contenido esperado PreferenciasUsuario, recibido "
-                        + (contenido == null ? "null" : contenido.getClass().getName()));
-                return null;
-            }
-            return (PreferenciasUsuario) contenido;
+            PreferenciasUsuario preferencias =
+                    (PreferenciasUsuario) msg.getContentObject();
+
+            System.out.println("[" + agente.nombreFuente()
+                    + "] Consulta recibida de usuario: " + preferencias);
+
+            InformePercepcion informe = agente.consultarFuente(preferencias);
+
+            informarAlUsuario(msg, informe);
+            enviarAlRecomendador(msg.getConversationId(), informe);
+
         } catch (UnreadableException e) {
-            informarAlUsuarioDeFallo(peticion,
-                "No se pudo leer el contenido: " + e.getMessage());
-            return null;
+            System.err.println("[" + agente.nombreFuente()
+                    + "] Error leyendo preferencias: " + e.getMessage());
         }
     }
 
-    private void notificarAck(ACLMessage peticion, InformePercepcion informe) {
-        ACLMessage ack = peticion.createReply();
-        ack.setPerformative(ACLMessage.INFORM);
-        ack.setContent("Agente de " + agentePercepcion.nombreFuente()
-            + " listo: " + informe);
-        myAgent.send(ack);
+    private void atenderReplanificacion(ACLMessage msg) {
+        try {
+            SolicitudReplanificacion solicitud =
+                    (SolicitudReplanificacion) msg.getContentObject();
+
+            System.out.println("[" + agente.nombreFuente()
+                    + "] Replanificación recibida: " + solicitud);
+
+            InformeReplanificacion informe =
+                    agente.replanificarFuente(solicitud);
+
+            ACLMessage respuesta = msg.createReply();
+            respuesta.setPerformative(ACLMessage.INFORM);
+            respuesta.setOntology(BasePercepcionAgent.ONTOLOGIA_RESPUESTA_REPLANIFICACION);
+            respuesta.setConversationId(msg.getConversationId());
+            respuesta.setContentObject(informe);
+
+            myAgent.send(respuesta);
+
+            System.out.println("[" + agente.nombreFuente()
+                    + "] Informe de replanificación enviado: " + informe);
+
+        } catch (UnreadableException | IOException e) {
+            System.err.println("[" + agente.nombreFuente()
+                    + "] Error en replanificación: " + e.getMessage());
+        }
     }
 
-    private AID buscarRecomendador() {
+    private void informarAlUsuario(ACLMessage msg, InformePercepcion informe) {
+        ACLMessage respuesta = msg.createReply();
+        respuesta.setPerformative(ACLMessage.INFORM);
+        respuesta.setOntology(BasePercepcionAgent.ONTOLOGIA_ENTRADA);
+        respuesta.setConversationId(msg.getConversationId());
+        respuesta.setContent("Agente de " + agente.nombreFuente()
+                + " listo: " + informe);
+
+        myAgent.send(respuesta);
+    }
+
+    private void enviarAlRecomendador(String conversationId, InformePercepcion informe) {
         DFAgentDescription plantilla = new DFAgentDescription();
+
         ServiceDescription sd = new ServiceDescription();
         sd.setType(BasePercepcionAgent.SERVICIO_RECOMENDADOR);
         plantilla.addServices(sd);
+
         try {
             DFAgentDescription[] resultados = DFService.search(myAgent, plantilla);
-            if (resultados.length > 0) {
-                return resultados[0].getName();
+
+            if (resultados.length == 0) {
+                System.err.println("[" + agente.nombreFuente()
+                        + "] No hay AgenteRecomendador registrado en el DF.");
+                return;
             }
-        } catch (FIPAException e) {
-            System.err.println("[" + myAgent.getLocalName()
-                + "] Error consultando DF: " + e.getMessage());
-        }
-        return null;
-    }
 
-    private void reenviar(ACLMessage peticionOriginal,
-                          InformePercepcion informe,
-                          AID recomendador) {
-        ACLMessage msg = new ACLMessage(ACLMessage.REQUEST);
-        msg.addReceiver(recomendador);
-        msg.setOntology(BasePercepcionAgent.ONTOLOGIA_SALIDA);
-        msg.setLanguage("JavaSerialization");
-        if (peticionOriginal.getConversationId() != null) {
-            // Vital para que el recomendador correlacione los fragmentos.
-            msg.setConversationId(peticionOriginal.getConversationId());
-        }
-        msg.setReplyWith(myAgent.getLocalName() + "-" + System.currentTimeMillis());
+            AID recomendador = resultados[0].getName();
 
-        try {
-            msg.setContentObject(informe);
-        } catch (IOException e) {
-            informarAlUsuarioDeFallo(peticionOriginal,
-                "Error serializando informe: " + e.getMessage());
-            return;
-        }
-        myAgent.send(msg);
-        System.out.println("[" + myAgent.getLocalName() + "] Informe enviado a "
-            + recomendador.getLocalName() + ": " + informe);
-    }
+            ACLMessage request = new ACLMessage(ACLMessage.REQUEST);
+            request.addReceiver(recomendador);
+            request.setOntology(BasePercepcionAgent.ONTOLOGIA_SALIDA);
+            request.setConversationId(conversationId);
+            request.setContentObject(informe);
 
-    private void informarAlUsuarioDeFallo(ACLMessage peticion, String motivo) {
-        ACLMessage respuesta = peticion.createReply();
-        respuesta.setPerformative(ACLMessage.FAILURE);
-        respuesta.setContent(motivo);
-        myAgent.send(respuesta);
-        System.err.println("[" + myAgent.getLocalName() + "] FAILURE -> "
-            + peticion.getSender().getLocalName() + ": " + motivo);
+            myAgent.send(request);
+
+            System.out.println("[" + agente.nombreFuente()
+                    + "] Informe enviado a recomendador: " + informe);
+
+        } catch (FIPAException | IOException e) {
+            System.err.println("[" + agente.nombreFuente()
+                    + "] Error enviando informe al recomendador: " + e.getMessage());
+        }
     }
 }

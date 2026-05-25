@@ -57,11 +57,28 @@ final class FuenteHoteles {
             return informe;
         }
         try {
-            informe.setHoteles(consultarReal(prefs, key));
+            List<Hotel> hoteles = consultarReal(prefs, key);
+
+            if (hoteles == null || hoteles.isEmpty()) {
+                System.err.println("[FuenteHoteles] Sin hoteles reales. Usando fallback.");
+
+                hoteles = simular(ciudad);
+
+                informe.setErrorMensaje(
+                    "Booking/RapidAPI no devolvio hoteles. Usando catalogo simulado."
+                );
+            }
+
+            informe.setHoteles(hoteles);
+
         } catch (Exception e) {
             System.err.println("[FuenteHoteles] Fallback simulado (" + e.getMessage() + ")");
+
             informe.setHoteles(simular(ciudad));
-            informe.setErrorMensaje("Booking/RapidAPI fallo: " + e.getMessage());
+
+            informe.setErrorMensaje(
+                "Booking/RapidAPI fallo: " + e.getMessage()
+            );
         }
         return informe;
     }
@@ -166,6 +183,53 @@ final class FuenteHoteles {
                 return Arrays.asList(
                     new Hotel("Catalonia Plaza Catalunya", "Centro", 130, 4, 4.4, null),
                     new Hotel("Praktik Rambla", "La Rambla", 90, 3, 4.1, null));
+            case "paris":
+                return Arrays.asList(
+                    new Hotel("Hotel Montmartre Paris", "Montmartre", 120, 3, 4.3, null),
+                    new Hotel("Hostel Eiffel Budget", "Torre Eiffel", 70, 2, 3.9, null),
+                    new Hotel("Le Marais Boutique Hotel", "Le Marais", 145, 4, 4.6, null));
+
+            case "londres":
+                return Arrays.asList(
+                    new Hotel("London Bridge Hotel", "Southwark", 135, 4, 4.4, null),
+                    new Hotel("Paddington Central Inn", "Paddington", 90, 3, 4.0, null),
+                    new Hotel("Camden Budget Rooms", "Camden Town", 65, 2, 3.8, null));
+
+            case "roma":
+                return Arrays.asList(
+                    new Hotel("Hotel Roma Centro", "Via Nazionale 45", 75, 3, 4.1, null),
+                    new Hotel("Hostal Termini", "Estacion Termini", 55, 2, 3.9, null),
+                    new Hotel("Hotel Trastevere Budget", "Trastevere", 68, 3, 4.0, null));
+
+            case "amsterdam":
+                return Arrays.asList(
+                    new Hotel("Canal View Amsterdam", "Centro Historico", 140, 4, 4.5, null),
+                    new Hotel("Bike Hostel Amsterdam", "Jordaan", 60, 2, 3.7, null),
+                    new Hotel("Museum Quarter Hotel", "Museumplein", 115, 3, 4.2, null));
+
+            case "berlin":
+                return Arrays.asList(
+                    new Hotel("Alexanderplatz Stay", "Alexanderplatz", 88, 3, 4.1, null),
+                    new Hotel("Berlin Mitte Hostel", "Mitte", 52, 2, 3.8, null),
+                    new Hotel("Checkpoint Boutique Hotel", "Checkpoint Charlie", 110, 4, 4.4, null));
+
+            case "praga":
+                return Arrays.asList(
+                    new Hotel("Old Town Prague Hotel", "Ciudad Vieja", 72, 3, 4.3, null),
+                    new Hotel("Charles Bridge Hostel", "Puente Carlos", 45, 2, 3.9, null),
+                    new Hotel("Bohemian Palace Prague", "Mala Strana", 95, 4, 4.5, null));
+
+            case "viena":
+                return Arrays.asList(
+                    new Hotel("Vienna Opera Hotel", "Innere Stadt", 118, 4, 4.5, null),
+                    new Hotel("Danube Budget Inn", "Danubio", 62, 2, 3.8, null),
+                    new Hotel("Schonbrunn Residence", "Schonbrunn", 98, 3, 4.2, null));
+
+            case "lisboa":
+                return Arrays.asList(
+                    new Hotel("Alfama Lisbon Hotel", "Alfama", 82, 3, 4.2, null),
+                    new Hotel("Tram 28 Hostel", "Baixa", 48, 2, 3.7, null),
+                    new Hotel("Belem Riverside Hotel", "Belem", 105, 4, 4.4, null));
             default:
                 return Collections.emptyList();
         }
