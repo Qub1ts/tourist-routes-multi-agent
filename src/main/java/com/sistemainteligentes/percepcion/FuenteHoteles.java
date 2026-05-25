@@ -57,11 +57,28 @@ final class FuenteHoteles {
             return informe;
         }
         try {
-            informe.setHoteles(consultarReal(prefs, key));
+            List<Hotel> hoteles = consultarReal(prefs, key);
+
+            if (hoteles == null || hoteles.isEmpty()) {
+                System.err.println("[FuenteHoteles] Sin hoteles reales. Usando fallback.");
+
+                hoteles = simular(ciudad);
+
+                informe.setErrorMensaje(
+                    "Booking/RapidAPI no devolvio hoteles. Usando catalogo simulado."
+                );
+            }
+
+            informe.setHoteles(hoteles);
+
         } catch (Exception e) {
             System.err.println("[FuenteHoteles] Fallback simulado (" + e.getMessage() + ")");
+
             informe.setHoteles(simular(ciudad));
-            informe.setErrorMensaje("Booking/RapidAPI fallo: " + e.getMessage());
+
+            informe.setErrorMensaje(
+                "Booking/RapidAPI fallo: " + e.getMessage()
+            );
         }
         return informe;
     }

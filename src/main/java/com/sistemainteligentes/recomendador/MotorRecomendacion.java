@@ -56,6 +56,12 @@ public class MotorRecomendacion {
 
         Collections.sort(candidatos);
 
+        List<CandidatoRuta> candidatosPorPresupuesto = filtrarViablesPorPresupuesto(candidatos);
+
+        if (!candidatosPorPresupuesto.isEmpty()) {
+            candidatos = candidatosPorPresupuesto;
+        }
+
         Set<String> excluidos = nombresExcluidos == null
                 ? new HashSet<>()
                 : nombresExcluidos.stream()
@@ -94,6 +100,19 @@ public class MotorRecomendacion {
                 desplazamiento
         );
 
+        double costeTotal = calcularCosteTotal(lugares, hoteles, eventos, dias);
+
+        if (costeTotal > presupuesto) {
+            return construirRespuestaSinPresupuesto(
+                    ciudad,
+                    dias,
+                    presupuesto,
+                    presupuestoPorDia,
+                    esAlternativa,
+                    nombresExcluidos
+            );
+        }
+
         return construirRespuesta(
                 ciudad,
                 dias,
@@ -107,7 +126,8 @@ public class MotorRecomendacion {
                 candidatosFiltrados,
                 esAlternativa,
                 desplazamiento,
-                nombresExcluidos
+                nombresExcluidos,
+                costeTotal
         );
     }
 
@@ -142,6 +162,12 @@ public class MotorRecomendacion {
         }
 
         Collections.sort(candidatos);
+
+        List<CandidatoRuta> candidatosPorPresupuesto = filtrarViablesPorPresupuesto(candidatos);
+
+        if (!candidatosPorPresupuesto.isEmpty()) {
+            candidatos = candidatosPorPresupuesto;
+        }
 
         Set<String> excluidos = nombresExcluidos == null
                 ? new HashSet<>()
@@ -178,11 +204,166 @@ public class MotorRecomendacion {
                 desplazamiento
         );
 
+        double costeTotal = calcularCosteTotal(lugares, hoteles, eventos, dias);
+
+        if (costeTotal > presupuesto) {
+            return nombres;
+        }
+
         lugares.forEach(c -> nombres.add(c.getNombre()));
         hoteles.forEach(c -> nombres.add(c.getNombre()));
         eventos.forEach(c -> nombres.add(c.getNombre()));
 
         return nombres;
+    }
+
+    private String construirRespuestaSinPresupuesto(
+            String ciudad,
+            int dias,
+            double presupuesto,
+            double presupuestoPorDia,
+            boolean esAlternativa,
+            List<String> nombresExcluidos
+    ) {
+        StringBuilder sb = new StringBuilder();
+
+        if (esAlternativa) {
+            sb.append("NO SE PUDO GENERAR UNA NUEVA PROPUESTA ALTERNATIVA\n\n");
+        } else {
+            sb.append("NO SE PUDO GENERAR UNA RUTA PARA ").append(ciudad.toUpperCase()).append("\n\n");
+        }
+
+        sb.append("El sistema no encontro una combinacion de hotel, lugares y eventos ");
+        sb.append("que se ajustara al presupuesto indicado.\n\n");
+
+        sb.append("Datos de la busqueda\n");
+        sb.append("- Ciudad: ").append(ciudad).append("\n");
+        sb.append("- Dias solicitados: ").append(dias).append("\n");
+        sb.append("- Presupuesto maximo: ").append(String.format("%.2f", presupuesto)).append(" EUR\n");
+        sb.append("- Presupuesto aproximado por dia: ")
+                .append(String.format("%.2f", presupuestoPorDia)).append(" EUR\n");
+
+        if (nombresExcluidos != null && !nombresExcluidos.isEmpty()) {
+            sb.append("- Candidatos previamente rechazados/excluidos: ")
+                    .append(nombresExcluidos.size()).append("\n");
+        }
+
+        sb.append("\nResultado\n");
+        sb.append("- No se encontraron hoteles que se ajustaran al presupuesto indicado.\n");
+        sb.append("- No se encontraron lugares que se ajustaran al presupuesto indicado.\n");
+        sb.append("- No se encontraron eventos que se ajustaran al presupuesto indicado.\n\n");
+
+        sb.append("Recomendacion\n");
+        sb.append("- Aumentar el presupuesto.\n");
+        sb.append("- Reducir los dias de viaje.\n");
+        sb.append("- Buscar actividades gratuitas.\n");
+        sb.append("- Cambiar intereses o ciudad de destino.\n");
+
+        return sb.toString();
+    }
+
+    private String construirRespuesta(
+            String ciudad,
+            int dias,
+            double presupuesto,
+            double presupuestoPorDia,
+            String intereses,
+            double scoreClima,
+            List<CandidatoRuta> lugares,
+            List<CandidatoRuta> hoteles,
+            List<CandidatoRuta> eventos,
+            List<CandidatoRuta> rankingGlobal,
+            boolean esAlternativa,
+            int desplazamiento,
+            List<String> nombresExcluidos,
+            double costeTotal
+    ) {
+        StringBuilder sb = new StringBuilder();
+
+        if (esAlternativa) {
+            sb.append("NUEVA PROPUESTA ALTERNATIVA\n");
+            sb.append("Usted ha rechazado la propuesta anterior. ");
+            sb.append("El sistema excluyo candidatos ya mostrados y recalculo la seleccion.\n");
+            sb.append("Candidatos excluidos previamente: ")
+                    .append(nombresExcluidos == null ? 0 : nombresExcluidos.size())
+                    .append("\n\n");
+        }
+
+        sb.append("RUTA RECOMENDADA PARA ").append(ciudad.toUpperCase()).append("\n\n");
+
+        sb.append("Preferencias del usuario\n");
+        sb.append("- Ciudad: ").append(ciudad).append("\n");
+        sb.append("- Dias disponibles: ").append(dias).append("\n");
+        sb.append("- Presupuesto maximo: ").append(String.format("%.2f", presupuesto)).append(" EUR\n");
+        sb.append("- Presupuesto aproximado por dia: ").append(String.format("%.2f", presupuestoPorDia)).append(" EUR\n");
+        sb.append("- Intereses: ").append(intereses).append("\n\n");
+
+        sb.append("Evaluacion del clima\n");
+        sb.append("- Score climatico global: ").append(String.format("%.2f", scoreClima)).append("/1.00\n\n");
+
+        sb.append("Itinerario propuesto\n");
+
+        CandidatoRuta hotel = hoteles.isEmpty() ? null : hoteles.get(0);
+
+        for (int dia = 1; dia <= Math.max(1, dias); dia++) {
+            sb.append("\nDia ").append(dia).append("\n");
+
+            CandidatoRuta lugar = obtenerPorIndiceCircular(lugares, dia - 1);
+            CandidatoRuta evento = obtenerPorIndiceCircular(eventos, dia - 1);
+
+            sb.append("- Lugar sugerido: ").append(lugar != null ? lugar.getNombre() : "no disponible").append("\n");
+            sb.append("- Evento sugerido: ").append(evento != null ? evento.getNombre() : "no disponible").append("\n");
+            sb.append("- Hotel base: ").append(hotel != null ? hotel.getNombre() : "no disponible").append("\n");
+        }
+
+        sb.append("\nHotel recomendado\n");
+        agregarLista(sb, hoteles);
+
+        sb.append("\nLugares seleccionados\n");
+        agregarLista(sb, lugares);
+
+        sb.append("\nEventos seleccionados\n");
+        agregarLista(sb, eventos);
+
+        sb.append("\nCoste aproximado estimado de la ruta seleccionada\n");
+        sb.append("- Total aproximado: ").append(String.format("%.2f", costeTotal)).append(" EUR\n");
+        sb.append("- Estado: dentro del presupuesto.\n");
+
+        return sb.toString();
+    }
+
+    private void agregarLista(StringBuilder sb, List<CandidatoRuta> lista) {
+        if (lista == null || lista.isEmpty()) {
+            sb.append("- No disponible.\n");
+            return;
+        }
+
+        for (int i = 0; i < lista.size(); i++) {
+            agregarCandidato(sb, i + 1, lista.get(i));
+        }
+    }
+
+    private double calcularCosteTotal(
+            List<CandidatoRuta> lugares,
+            List<CandidatoRuta> hoteles,
+            List<CandidatoRuta> eventos,
+            int dias
+    ) {
+        double costeTotal = 0.0;
+
+        for (CandidatoRuta lugar : lugares) {
+            costeTotal += lugar.getCosteEstimado();
+        }
+
+        for (CandidatoRuta evento : eventos) {
+            costeTotal += evento.getCosteEstimado();
+        }
+
+        if (!hoteles.isEmpty()) {
+            costeTotal += hoteles.get(0).getCosteEstimado() * dias;
+        }
+
+        return costeTotal;
     }
 
     private List<CandidatoRuta> construirCandidatos(List<InformePercepcion> fragmentos) {
@@ -209,39 +390,19 @@ public class MotorRecomendacion {
     }
 
     private CandidatoRuta crearCandidato(CandidatoRuta.Tipo tipo, Object elemento) {
-        String nombre = primerStringDisponible(
-                elemento,
-                "getNombre",
-                "getName",
-                "getTitulo",
-                "getTitle"
-        );
+        String nombre = primerStringDisponible(elemento, "getNombre", "getName", "getTitulo", "getTitle");
 
         if (nombre == null || nombre.isBlank()) {
             nombre = elemento.getClass().getSimpleName();
         }
 
-        String descripcion = primerStringDisponible(
-                elemento,
-                "getDescripcion",
-                "getDescription",
-                "getCategoria",
-                "getTipo",
-                "getDireccion"
-        );
+        String descripcion = primerStringDisponible(elemento, "getDescripcion", "getDescription", "getCategoria", "getTipo", "getDireccion");
 
         if (descripcion == null || descripcion.isBlank()) {
             descripcion = elemento.toString();
         }
 
-        double coste = primerDoubleDisponible(
-                elemento,
-                "getPrecio",
-                "getPrecioEstimado",
-                "getCoste",
-                "getCosto",
-                "getPrice"
-        );
+        double coste = primerDoubleDisponible(elemento, "getPrecio", "getPrecioEstimado", "getCoste", "getCosto", "getPrice");
 
         if (coste <= 0) {
             coste = costeEstimadoPorTipo(tipo);
@@ -267,9 +428,7 @@ public class MotorRecomendacion {
         Set<String> union = new HashSet<>(queryExpandida);
         union.addAll(documento);
 
-        double jaccard = union.isEmpty()
-                ? 0.0
-                : (double) interseccion.size() / union.size();
+        double jaccard = union.isEmpty() ? 0.0 : (double) interseccion.size() / union.size();
 
         double bonusOntologico = 0.0;
 
@@ -285,75 +444,20 @@ public class MotorRecomendacion {
     private Set<String> expandirConOntologiaTuristica(Set<String> intereses) {
         Map<String, Set<String>> ontologia = new HashMap<>();
 
-        ontologia.put("museo", Set.of(
-                "museo", "museos", "exposicion", "galeria",
-                "arte", "cultura", "historia"
-        ));
-
-        ontologia.put("museos", Set.of(
-                "museo", "museos", "exposicion", "galeria",
-                "arte", "cultura", "historia"
-        ));
-
-        ontologia.put("arte", Set.of(
-                "arte", "museo", "galeria", "exposicion",
-                "cultura", "historia"
-        ));
-
-        ontologia.put("cultura", Set.of(
-                "cultura", "museo", "monumento", "historia",
-                "arte", "exposicion", "patrimonio"
-        ));
-
-        ontologia.put("historia", Set.of(
-                "historia", "museo", "monumento", "cultura",
-                "patrimonio", "palacio"
-        ));
-
-        ontologia.put("comida", Set.of(
-                "comida", "restaurante", "mercado", "gastronomia",
-                "tapas", "cocina", "bar"
-        ));
-
-        ontologia.put("gastronomia", Set.of(
-                "comida", "restaurante", "mercado", "gastronomia",
-                "tapas", "cocina", "bar"
-        ));
-
-        ontologia.put("restaurante", Set.of(
-                "comida", "restaurante", "gastronomia",
-                "tapas", "cocina", "bar"
-        ));
-
-        ontologia.put("naturaleza", Set.of(
-                "naturaleza", "parque", "jardin", "rio",
-                "montana", "senderismo", "aire", "libre"
-        ));
-
-        ontologia.put("parque", Set.of(
-                "naturaleza", "parque", "jardin", "aire",
-                "libre", "paseo"
-        ));
-
-        ontologia.put("ocio", Set.of(
-                "ocio", "concierto", "evento", "espectaculo",
-                "teatro", "musica", "show"
-        ));
-
-        ontologia.put("musica", Set.of(
-                "musica", "concierto", "evento", "espectaculo",
-                "teatro", "ocio"
-        ));
-
-        ontologia.put("compras", Set.of(
-                "compras", "tienda", "mercado", "centro",
-                "comercial", "shopping"
-        ));
-
-        ontologia.put("religion", Set.of(
-                "religion", "iglesia", "catedral",
-                "templo", "monasterio"
-        ));
+        ontologia.put("museo", Set.of("museo", "museos", "exposicion", "galeria", "arte", "cultura", "historia"));
+        ontologia.put("museos", Set.of("museo", "museos", "exposicion", "galeria", "arte", "cultura", "historia"));
+        ontologia.put("arte", Set.of("arte", "museo", "galeria", "exposicion", "cultura", "historia"));
+        ontologia.put("cultura", Set.of("cultura", "museo", "monumento", "historia", "arte", "exposicion", "patrimonio"));
+        ontologia.put("historia", Set.of("historia", "museo", "monumento", "cultura", "patrimonio", "palacio"));
+        ontologia.put("comida", Set.of("comida", "restaurante", "mercado", "gastronomia", "tapas", "cocina", "bar"));
+        ontologia.put("gastronomia", Set.of("comida", "restaurante", "mercado", "gastronomia", "tapas", "cocina", "bar"));
+        ontologia.put("restaurante", Set.of("comida", "restaurante", "gastronomia", "tapas", "cocina", "bar"));
+        ontologia.put("naturaleza", Set.of("naturaleza", "parque", "jardin", "rio", "montana", "senderismo", "aire", "libre"));
+        ontologia.put("parque", Set.of("naturaleza", "parque", "jardin", "aire", "libre", "paseo"));
+        ontologia.put("ocio", Set.of("ocio", "concierto", "evento", "espectaculo", "teatro", "musica", "show"));
+        ontologia.put("musica", Set.of("musica", "concierto", "evento", "espectaculo", "teatro", "ocio"));
+        ontologia.put("compras", Set.of("compras", "tienda", "mercado", "centro", "comercial", "shopping"));
+        ontologia.put("religion", Set.of("religion", "iglesia", "catedral", "templo", "monasterio"));
 
         Set<String> expandidos = new HashSet<>(intereses);
 
@@ -381,10 +485,7 @@ public class MotorRecomendacion {
 
         if (coste <= presupuestoActividad) return 1.0;
 
-        return Math.max(
-                0.0,
-                1.0 - ((coste - presupuestoActividad) / Math.max(presupuestoActividad, 1.0))
-        );
+        return Math.max(0.0, 1.0 - ((coste - presupuestoActividad) / Math.max(presupuestoActividad, 1.0)));
     }
 
     private double calcularScoreClimaGlobal(List<InformePercepcion> fragmentos) {
@@ -396,10 +497,8 @@ public class MotorRecomendacion {
 
         if (textoClima.isBlank()) return 0.70;
 
-        if (textoClima.contains("lluvia")
-                || textoClima.contains("rain")
-                || textoClima.contains("tormenta")
-                || textoClima.contains("storm")) {
+        if (textoClima.contains("lluvia") || textoClima.contains("rain")
+                || textoClima.contains("tormenta") || textoClima.contains("storm")) {
             return 0.45;
         }
 
@@ -407,10 +506,8 @@ public class MotorRecomendacion {
             return 0.35;
         }
 
-        if (textoClima.contains("claro")
-                || textoClima.contains("soleado")
-                || textoClima.contains("sun")
-                || textoClima.contains("clear")) {
+        if (textoClima.contains("claro") || textoClima.contains("soleado")
+                || textoClima.contains("sun") || textoClima.contains("clear")) {
             return 1.0;
         }
 
@@ -422,21 +519,11 @@ public class MotorRecomendacion {
     }
 
     private double calcularScorePopularidad(CandidatoRuta candidato) {
-        double valoracion = primerDoubleDisponible(
-                candidato.getElementoOriginal(),
-                "getValoracion",
-                "getRating",
-                "getPuntuacion",
-                "getScore"
-        );
+        double valoracion = primerDoubleDisponible(candidato.getElementoOriginal(), "getValoracion", "getRating", "getPuntuacion", "getScore");
 
-        if (valoracion <= 0) {
-            return 0.60;
-        }
+        if (valoracion <= 0) return 0.60;
 
-        if (valoracion > 5.0) {
-            return limitar01(valoracion / 10.0);
-        }
+        if (valoracion > 5.0) return limitar01(valoracion / 10.0);
 
         return limitar01(valoracion / 5.0);
     }
@@ -454,157 +541,15 @@ public class MotorRecomendacion {
         }
     }
 
-    private String construirRespuesta(
-            String ciudad,
-            int dias,
-            double presupuesto,
-            double presupuestoPorDia,
-            String intereses,
-            double scoreClima,
-            List<CandidatoRuta> lugares,
-            List<CandidatoRuta> hoteles,
-            List<CandidatoRuta> eventos,
-            List<CandidatoRuta> rankingGlobal,
-            boolean esAlternativa,
-            int desplazamiento,
-            List<String> nombresExcluidos
-    ) {
-        StringBuilder sb = new StringBuilder();
-
-        if (esAlternativa) {
-            sb.append("NUEVA PROPUESTA ALTERNATIVA\n");
-            sb.append("El usuario rechazo la ruta anterior. ");
-            sb.append("El recomendador excluyo candidatos ya mostrados y recalculo la seleccion.\n");
-            sb.append("Desplazamiento aplicado al ranking: ").append(desplazamiento).append("\n");
-            sb.append("Candidatos excluidos previamente: ")
-                    .append(nombresExcluidos == null ? 0 : nombresExcluidos.size())
-                    .append("\n\n");
-        }
-
-        sb.append("RUTA RECOMENDADA PARA ").append(ciudad.toUpperCase()).append("\n\n");
-
-        sb.append("Preferencias del usuario\n");
-        sb.append("- Ciudad: ").append(ciudad).append("\n");
-        sb.append("- Días disponibles: ").append(dias).append("\n");
-        sb.append("- Presupuesto máximo: ").append(String.format("%.2f", presupuesto)).append(" EUR\n");
-        sb.append("- Presupuesto aproximado por día: ").append(String.format("%.2f", presupuestoPorDia)).append(" EUR\n");
-        sb.append("- Intereses: ").append(intereses).append("\n\n");
-
-        sb.append("Método inteligente usado\n");
-        sb.append("- Recuperación de información: las preferencias se tratan como consulta.\n");
-        sb.append("- Ranking: cada lugar, hotel y evento recibe un score final.\n");
-        sb.append("- Ontología turística ligera: expande intereses como museo -> arte/cultura/exposición.\n");
-        sb.append("- Feature engineering: intereses, presupuesto, clima, popularidad y diversidad.\n");
-        sb.append("- Feedback del usuario: si se rechaza una ruta, se excluyen candidatos ya mostrados.\n\n");
-
-        sb.append("Fórmula de scoring\n");
-        sb.append("score = 0.45 intereses + 0.25 presupuesto + 0.15 clima + 0.10 popularidad + 0.05 diversidad\n\n");
-
-        sb.append("Evaluación del clima\n");
-        sb.append("- Score climático global: ").append(String.format("%.2f", scoreClima)).append("/1.00\n\n");
-
-        sb.append("Itinerario propuesto\n");
-
-        CandidatoRuta hotel = hoteles.isEmpty() ? null : hoteles.get(0);
-
-        for (int dia = 1; dia <= Math.max(1, dias); dia++) {
-            sb.append("\nDía ").append(dia).append("\n");
-
-            CandidatoRuta lugar = obtenerPorIndiceCircular(lugares, dia - 1);
-            CandidatoRuta evento = obtenerPorIndiceCircular(eventos, dia - 1);
-
-            if (lugar != null) {
-                sb.append("- Lugar sugerido: ").append(lugar.getNombre())
-                        .append(" (").append(String.format("%.2f", lugar.getCosteEstimado())).append(" EUR)\n");
-            } else {
-                sb.append("- Lugar sugerido: no disponible\n");
-            }
-
-            if (evento != null) {
-                sb.append("- Evento sugerido: ").append(evento.getNombre())
-                        .append(" (").append(String.format("%.2f", evento.getCosteEstimado())).append(" EUR)\n");
-            } else {
-                sb.append("- Evento sugerido: no disponible\n");
-            }
-
-            if (hotel != null) {
-                sb.append("- Hotel base: ").append(hotel.getNombre())
-                        .append(" (").append(String.format("%.2f", hotel.getCosteEstimado())).append(" EUR/noche)\n");
-            } else {
-                sb.append("- Hotel base: no disponible\n");
-            }
-        }
-
-        sb.append("\nLugares seleccionados\n");
-        if (lugares.isEmpty()) {
-            sb.append("- No hay lugares alternativos suficientes. Se agotaron las opciones disponibles.\n");
-        } else {
-            for (int i = 0; i < lugares.size(); i++) {
-                agregarCandidato(sb, i + 1, lugares.get(i));
-            }
-        }
-
-        sb.append("\nHotel recomendado\n");
-        if (hoteles.isEmpty()) {
-            sb.append("- No hay hoteles alternativos suficientes. Se agotaron las opciones disponibles.\n");
-        } else {
-            agregarCandidato(sb, 1, hoteles.get(0));
-        }
-
-        sb.append("\nEventos seleccionados\n");
-        if (eventos.isEmpty()) {
-            sb.append("- No hay eventos alternativos suficientes. Se agotaron las opciones disponibles.\n");
-        } else {
-            for (int i = 0; i < eventos.size(); i++) {
-                agregarCandidato(sb, i + 1, eventos.get(i));
-            }
-        }
-
-        double costeTotal = 0.0;
-
-        for (CandidatoRuta lugar : lugares) {
-            costeTotal += lugar.getCosteEstimado();
-        }
-
-        for (CandidatoRuta evento : eventos) {
-            costeTotal += evento.getCosteEstimado();
-        }
-
-        if (!hoteles.isEmpty()) {
-            costeTotal += hoteles.get(0).getCosteEstimado() * dias;
-        }
-
-        sb.append("\nCoste aproximado estimado de la ruta seleccionada\n");
-        sb.append("- Total aproximado: ").append(String.format("%.2f", costeTotal)).append(" EUR\n");
-
-        if (costeTotal <= presupuesto) {
-            sb.append("- Estado: dentro del presupuesto.\n");
-        } else {
-            sb.append("- Estado: supera el presupuesto. Se recomienda reducir eventos o elegir actividades gratuitas.\n");
-        }
-
-        sb.append("\nRanking global de candidatos evaluados, no todos incluidos en la ruta\n");
-        int limite = Math.min(8, rankingGlobal.size());
-
-        for (int i = 0; i < limite; i++) {
-            agregarCandidato(sb, i + 1, rankingGlobal.get(i));
-        }
-
-        return sb.toString();
-    }
-
     private CandidatoRuta obtenerPorIndiceCircular(List<CandidatoRuta> lista, int indice) {
-        if (lista == null || lista.isEmpty()) {
-            return null;
-        }
-
+        if (lista == null || lista.isEmpty()) return null;
         return lista.get(indice % lista.size());
     }
 
     private void agregarCandidato(StringBuilder sb, int posicion, CandidatoRuta candidato) {
         sb.append(posicion).append(". ").append(candidato.getNombre()).append("\n");
         sb.append("   Tipo: ").append(candidato.getTipo()).append("\n");
-        sb.append("   Descripción: ").append(recortar(candidato.getDescripcion(), 180)).append("\n");
+        sb.append("   Descripcion: ").append(recortar(candidato.getDescripcion(), 180)).append("\n");
         sb.append("   Coste estimado: ").append(String.format("%.2f", candidato.getCosteEstimado())).append(" EUR\n");
         sb.append("   Score final: ").append(String.format("%.3f", candidato.getScoreFinal())).append("\n");
         sb.append("   Detalle score: intereses=")
@@ -620,24 +565,20 @@ public class MotorRecomendacion {
                 .append("\n");
     }
 
-    private List<CandidatoRuta> filtrarPorTipo(
-            List<CandidatoRuta> candidatos,
-            CandidatoRuta.Tipo tipo,
-            int limite,
-            int desplazamiento
-    ) {
+    private List<CandidatoRuta> filtrarViablesPorPresupuesto(List<CandidatoRuta> candidatos) {
+        return candidatos.stream()
+                .filter(c -> c.getScorePresupuesto() > 0.0)
+                .collect(Collectors.toList());
+    }
+
+    private List<CandidatoRuta> filtrarPorTipo(List<CandidatoRuta> candidatos, CandidatoRuta.Tipo tipo, int limite, int desplazamiento) {
         List<CandidatoRuta> filtrados = candidatos.stream()
                 .filter(c -> c.getTipo() == tipo)
                 .collect(Collectors.toList());
 
-        if (filtrados.isEmpty()) {
-            return filtrados;
-        }
+        if (filtrados.isEmpty()) return filtrados;
 
-        int inicio = Math.min(
-                Math.max(0, desplazamiento),
-                Math.max(0, filtrados.size() - 1)
-        );
+        int inicio = Math.min(Math.max(0, desplazamiento), Math.max(0, filtrados.size() - 1));
 
         List<CandidatoRuta> resultado = new ArrayList<>();
 
@@ -668,11 +609,7 @@ public class MotorRecomendacion {
 
             try {
                 Object valor = metodo.invoke(informe);
-
-                if (valor instanceof Collection<?>) {
-                    elementos.addAll((Collection<?>) valor);
-                }
-
+                if (valor instanceof Collection<?>) elementos.addAll((Collection<?>) valor);
             } catch (Exception ignored) {
             }
         }
@@ -705,9 +642,7 @@ public class MotorRecomendacion {
     private String primerStringDisponible(Object objeto, String... metodos) {
         for (String metodo : metodos) {
             String valor = leerString(objeto, metodo, null);
-            if (valor != null && !valor.isBlank()) {
-                return valor;
-            }
+            if (valor != null && !valor.isBlank()) return valor;
         }
         return null;
     }
@@ -715,9 +650,7 @@ public class MotorRecomendacion {
     private double primerDoubleDisponible(Object objeto, String... metodos) {
         for (String metodo : metodos) {
             double valor = leerDouble(objeto, metodo, -1.0);
-            if (valor > 0) {
-                return valor;
-            }
+            if (valor > 0) return valor;
         }
         return -1.0;
     }
@@ -726,9 +659,7 @@ public class MotorRecomendacion {
         try {
             Method m = objeto.getClass().getMethod(metodo);
             Object valor = m.invoke(objeto);
-
             if (valor == null) return valorPorDefecto;
-
             return String.valueOf(valor);
         } catch (Exception e) {
             return valorPorDefecto;
@@ -739,11 +670,7 @@ public class MotorRecomendacion {
         try {
             Method m = objeto.getClass().getMethod(metodo);
             Object valor = m.invoke(objeto);
-
-            if (valor instanceof Number) {
-                return ((Number) valor).intValue();
-            }
-
+            if (valor instanceof Number) return ((Number) valor).intValue();
             return Integer.parseInt(String.valueOf(valor));
         } catch (Exception e) {
             return valorPorDefecto;
@@ -754,11 +681,7 @@ public class MotorRecomendacion {
         try {
             Method m = objeto.getClass().getMethod(metodo);
             Object valor = m.invoke(objeto);
-
-            if (valor instanceof Number) {
-                return ((Number) valor).doubleValue();
-            }
-
+            if (valor instanceof Number) return ((Number) valor).doubleValue();
             return Double.parseDouble(String.valueOf(valor));
         } catch (Exception e) {
             return valorPorDefecto;
@@ -790,7 +713,6 @@ public class MotorRecomendacion {
 
     private String normalizarTexto(String texto) {
         if (texto == null) return "";
-
         return Normalizer.normalize(texto, Normalizer.Form.NFD)
                 .replaceAll("\\p{M}", "")
                 .toLowerCase()

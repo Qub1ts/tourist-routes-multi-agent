@@ -355,14 +355,8 @@ public class RecogerFragmentosBehaviour extends CyclicBehaviour {
     ) {
         StringBuilder sb = new StringBuilder();
 
-        sb.append("\n\nREPLANIFICACION DINAMICA\n");
-        sb.append("El recomendador realizo una segunda ronda de comunicacion ");
-        sb.append("con los agentes de lugares y eventos usando ParallelBehaviour.\n");
 
         for (InformeReplanificacion informe : informes) {
-            sb.append("\nFuente: ").append(informe.getFuente()).append("\n");
-            sb.append("Criterio aplicado: ").append(informe.getCriterio()).append("\n");
-            sb.append("Mensaje: ").append(informe.getMensaje()).append("\n");
 
             if (informe.getLugares() != null && !informe.getLugares().isEmpty()) {
                 sb.append("Lugares alternativos sugeridos:\n");
