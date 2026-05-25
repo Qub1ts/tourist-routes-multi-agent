@@ -1,21 +1,3 @@
-#!/usr/bin/env bash
-# Script de arranque del sistema multiagente.
-#
-# Lanza la plataforma JADE con todos los agentes implementados en este
-# repo (AgenteUsuario + 4 agentes de percepcion). Cuando los companeros
-# integren AgenteRecomendador y AgenteInterfaz solo hay que anadirlos a
-# la variable AGENTES de mas abajo.
-#
-# Uso:
-#   ./run.sh             # Lanza usuario + los 4 de percepcion (modo grafico)
-#   ./run.sh --headless  # Solo los 4 de percepcion (servidores sin display)
-#
-# Las API keys se toman de:
-#   1. Variables de entorno (OPENWEATHER_API_KEY, OPENTRIPMAP_API_KEY,
-#      AMADEUS_CLIENT_ID, AMADEUS_CLIENT_SECRET, TICKETMASTER_API_KEY).
-#   2. Si no estan, del fichero apikeys.properties en la raiz (gitignored).
-#   3. Si tampoco estan, cada agente usa su catalogo simulado de respaldo.
-
 set -e
 
 cd "$(dirname "$0")"
