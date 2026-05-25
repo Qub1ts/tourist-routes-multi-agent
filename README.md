@@ -25,8 +25,8 @@ El sistema recomienda rutas turísticas personalizadas consultando información 
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/Qub1ts/multi-agent.git
-cd multi-agent
+git clone https://github.com/Qub1ts/tourist-routes-multi-agent.git
+cd tourist-routes-multi-agent
 
 # 2. Compilar el proyecto (descarga las dependencias declaradas en pom.xml)
 mvn -DskipTests compile
