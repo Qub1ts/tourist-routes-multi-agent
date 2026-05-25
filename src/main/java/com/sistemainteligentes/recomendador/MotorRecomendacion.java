@@ -2,6 +2,7 @@ package com.sistemainteligentes.recomendador;
 
 import com.sistemainteligentes.comun.InformePercepcion;
 import com.sistemainteligentes.comun.PreferenciasUsuario;
+import com.sistemainteligentes.comun.DatosClima;
 
 import java.lang.reflect.Method;
 import java.text.Normalizer;
@@ -489,26 +490,70 @@ public class MotorRecomendacion {
     }
 
     private double calcularScoreClimaGlobal(List<InformePercepcion> fragmentos) {
-        String textoClima = fragmentos.stream()
-                .filter(f -> f.getFuente() != null && f.getFuente().toLowerCase().contains("clima"))
-                .map(Object::toString)
-                .collect(Collectors.joining(" "))
-                .toLowerCase();
+        DatosClima clima = null;
+        String textoClima = "";
 
-        if (textoClima.isBlank()) return 0.70;
+        for (InformePercepcion informe : fragmentos) {
+            if (informe.getFuente() != null
+                    && informe.getFuente().toLowerCase().contains("clima")) {
+                clima = informe.getDatosClima();
+                textoClima = informe.toString().toLowerCase();
+                break;
+            }
+        }
 
-        if (textoClima.contains("lluvia") || textoClima.contains("rain")
-                || textoClima.contains("tormenta") || textoClima.contains("storm")) {
-            return 0.45;
+        if (clima == null) {
+            return 0.70;
+        }
+
+        double temperatura = clima.getTemperaturaActual();
+        double lluvia = clima.getProbabilidadLluvia();
+        double viento = clima.getViento();
+        int humedad = clima.getHumedad();
+
+        if (textoClima.contains("tormenta") || textoClima.contains("storm")) {
+            return 0.25;
         }
 
         if (textoClima.contains("nieve") || textoClima.contains("snow")) {
             return 0.35;
         }
 
-        if (textoClima.contains("claro") || textoClima.contains("soleado")
-                || textoClima.contains("sun") || textoClima.contains("clear")) {
-            return 1.0;
+        if (lluvia >= 0.60 || textoClima.contains("lluvia") || textoClima.contains("rain")) {
+            return 0.45;
+        }
+
+        if (viento >= 10.0) {
+            return 0.55;
+        }
+
+        if (!Double.isNaN(temperatura)) {
+            if (temperatura < 5 || temperatura > 35) {
+                return 0.50;
+            }
+
+            if (temperatura >= 18 && temperatura <= 28 && lluvia < 0.20 && viento < 8.0) {
+                return 1.00;
+            }
+
+            if (temperatura >= 10 && temperatura < 18) {
+                return 0.75;
+            }
+
+            if (temperatura > 28 && temperatura <= 35) {
+                return 0.70;
+            }
+        }
+
+        if (humedad >= 80) {
+            return 0.65;
+        }
+
+        if (textoClima.contains("claro")
+                || textoClima.contains("soleado")
+                || textoClima.contains("sun")
+                || textoClima.contains("clear")) {
+            return 0.95;
         }
 
         if (textoClima.contains("nublado") || textoClima.contains("cloud")) {

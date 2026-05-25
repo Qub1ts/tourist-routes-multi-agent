@@ -4,6 +4,7 @@ import com.sistemainteligentes.comun.InformePercepcion;
 import com.sistemainteligentes.comun.InformeReplanificacion;
 import com.sistemainteligentes.comun.PreferenciasUsuario;
 import com.sistemainteligentes.comun.SolicitudReplanificacion;
+import com.sistemainteligentes.comun.DatosClima;
 
 import jade.core.AID;
 import jade.core.Agent;
@@ -295,29 +296,67 @@ public class RecogerFragmentosBehaviour extends CyclicBehaviour {
     }
 
     private String decidirCriterioPorClima(List<InformePercepcion> fragmentos) {
+        DatosClima clima = null;
         String textoClima = "";
 
         for (InformePercepcion informe : fragmentos) {
             if (informe.getFuente() != null
                     && informe.getFuente().toLowerCase().contains("clima")) {
+                clima = informe.getDatosClima();
                 textoClima = informe.toString().toLowerCase();
                 break;
             }
         }
 
-        if (textoClima.contains("lluvia")
-                || textoClima.contains("rain")
-                || textoClima.contains("tormenta")
+        if (clima == null) {
+            return "indoor";
+        }
+
+        double temperatura = clima.getTemperaturaActual();
+        double lluvia = clima.getProbabilidadLluvia();
+        double viento = clima.getViento();
+        int humedad = clima.getHumedad();
+
+        if (textoClima.contains("tormenta")
                 || textoClima.contains("storm")
                 || textoClima.contains("nieve")
                 || textoClima.contains("snow")) {
             return "indoor";
         }
 
+        if (lluvia >= 0.40
+                || textoClima.contains("lluvia")
+                || textoClima.contains("rain")) {
+            return "indoor";
+        }
+
+        if (viento >= 10.0) {
+            return "indoor";
+        }
+
+        if (!Double.isNaN(temperatura)) {
+            if (temperatura < 8 || temperatura > 34) {
+                return "indoor";
+            }
+
+            if (temperatura >= 18
+                    && temperatura <= 28
+                    && lluvia < 0.20
+                    && viento < 8.0
+                    && humedad < 80) {
+                return "outdoor";
+            }
+        }
+
         if (textoClima.contains("claro")
                 || textoClima.contains("soleado")
                 || textoClima.contains("sun")
                 || textoClima.contains("clear")) {
+            return "outdoor";
+        }
+
+        if (textoClima.contains("nublado")
+                || textoClima.contains("cloud")) {
             return "outdoor";
         }
 
