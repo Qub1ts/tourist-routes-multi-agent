@@ -1,230 +1,130 @@
-# Sistema inteligente de recomendación de rutas turísticas
+# Sistema multiagente de recomendación de rutas turísticas
 
-Práctica de Sistemas Inteligentes (curso 2025‑2026) implementada como sistema
-multiagente sobre la plataforma **JADE**.
+Práctica de **Sistemas Inteligentes** — curso 2025‑2026 (UPM, ETSI Informáticos).
 
-El sistema recomienda rutas turísticas según el clima, el presupuesto, el
-tiempo disponible y las preferencias del usuario. Ejemplo de uso:
-> *"Tengo 1 día en Madrid, quiero gastar poco y me interesan museos y comida."*
+El sistema recomienda rutas turísticas personalizadas consultando información
+real de la web (clima, lugares, hoteles y eventos) y filtrándola según las
+preferencias del usuario.
 
-El sistema consulta información externa, procesa las opciones y devuelve una
-ruta recomendada con costes aproximados.
-
----
-
-## 1. Arquitectura
-
-```
-                  +-----------------+
-                  |  AgenteUsuario  |  (interfaz Swing)
-                  +────────┬────────+
-                           │ busca DF "fuente-percepcion"
-                           │ REQUEST(PreferenciasUsuario) en fan-out
-        ┌──────────────────┼──────────────────┬──────────────────┐
-        ▼                  ▼                  ▼                  ▼
- +─────────────+    +─────────────+    +─────────────+    +─────────────+
- |  AgenteClima |    |AgenteLugares|    |AgenteHoteles|    |AgenteEventos|
- | OpenWeather  |    | OpenTripMap |    | RapidAPI    |    |Ticketmaster |
- |              |    |             |    | (Booking)   |    |             |
- +──────┬──────+    +──────┬──────+    +──────┬──────+    +──────┬──────+
-        │                  │                  │                  │
-        │ REQUEST(InformePercepcion: solo SU fragmento)           │
-        │ mismo conversationId para que el recomendador los una   │
-        └──────────────────┴────────┬─────────┴──────────────────┘
-                                    ▼
-                          +─────────────────────+
-                          |  AgenteRecomendador |  ← compañero/a
-                          | acumula fragmentos  |
-                          | por conversationId  |
-                          | y construye la ruta |
-                          +──────────┬──────────+
-                                     ▼ INFORM(RutaRecomendada)
-                          +─────────────────────+
-                          |    AgenteInterfaz   |  ← compañero/a
-                          |   muestra la ruta   |
-                          +─────────────────────+
-```
-
-Flujo paso a paso:
-
-1. El usuario rellena sus preferencias en la ventana del `AgenteUsuario`
-   y pulsa "Enviar".
-2. `AgenteUsuario` busca en el DF **todos** los agentes que ofrezcan el
-   servicio genérico `fuente-percepcion` y manda un `REQUEST` con las
-   mismas `PreferenciasUsuario` a cada uno (**fan-out**). Todos los
-   mensajes comparten el mismo `conversationId`.
-3. Cada agente de percepción consulta **su** API externa
-   (`AgenteClima → OpenWeatherMap`, `AgenteLugares → OpenTripMap`,
-   `AgenteHoteles → Booking.com vía RapidAPI`,
-   `AgenteEventos → Ticketmaster`), construye
-   un `InformePercepcion` con solo su fragmento de datos y se lo envía
-   al `AgenteRecomendador`. También manda un `INFORM` de ACK al usuario
-   para que la interfaz informe del progreso.
-4. `AgenteRecomendador` (lo hace el compañero/a) recibe los `N`
-   fragmentos del mismo `conversationId`, los acumula, aplica sus
-   reglas de filtrado/puntuación según las preferencias y construye la
-   ruta recomendada.
-5. `AgenteRecomendador` envía la ruta al `AgenteInterfaz` con
-   `INFORM`. Opcionalmente confirma al `AgenteUsuario`.
-6. `AgenteInterfaz` muestra la ruta, los hoteles, los eventos, el
-   clima esperado y los costes al usuario.
-
-Todos los agentes se registran/consultan en el **Directory Facilitator
-(DF)** de JADE y se comunican mediante mensajes **ACL** (FIPA-ACL). Cada
-comportamiento implementa filtrado de mensajes con `MessageTemplate` y
-recepción en modo bloqueante (`block()` / `blockingReceive()`).
-
-| Agente | Responsable | Servicios DF | Estado |
-|---|---|---|---|
-| `AgenteUsuario` | Julio | – (consumidor) | ✅ implementado y probado |
-| `AgenteClima` | Julio | `fuente-percepcion`, `percepcion-clima` | ✅ implementado + OpenWeather real |
-| `AgenteLugares` | Julio | `fuente-percepcion`, `percepcion-lugares` | ✅ implementado + OpenTripMap real |
-| `AgenteHoteles` | Julio | `fuente-percepcion`, `percepcion-hoteles` | ✅ implementado + Booking/RapidAPI real |
-| `AgenteEventos` | Julio | `fuente-percepcion`, `percepcion-eventos` | ✅ implementado + Ticketmaster real |
-| `AgenteRecomendador` | Compañero/a | `recomendar-ruta` | ⏳ pendiente (ver §6) |
-| `AgenteInterfaz` | Compañero/a | `mostrar-ruta` | ⏳ pendiente (ver §6) |
-
-**Estado actual del sistema:** los 5 agentes de Julio funcionan end-to-end
-sobre las 4 APIs reales (clima, lugares, hoteles, eventos). Falta solo
-el `AgenteRecomendador` y el `AgenteInterfaz` que están a cargo de los
-compañeros (sección 6).
-
-Que cada agente de percepción registre el tipo genérico `fuente-percepcion`
-permite añadir nuevas fuentes (transporte público, eventos deportivos,
-gastronomía especializada...) sin tocar al `AgenteUsuario`: basta con
-crear una nueva subclase de `BasePercepcionAgent` y lanzarla; el usuario
-la descubrirá automáticamente vía DF.
+> *Ejemplo del enunciado:* «Tengo 1 día en Madrid, quiero gastar poco y me
+> interesan museos y comida.» El sistema consulta cuatro APIs externas en
+> paralelo y devuelve una ruta puntuada con costes aproximados.
 
 ---
 
-## 2. Estructura del repositorio
+## 1. Instrucciones de instalación
 
-```
-proyecto/
-├── lib/jade.jar                  # JADE 4.6.0 (incluido)
-├── pom.xml                       # Maven (Java 17, org.json)
-├── apikeys.properties.example    # Plantilla para las 5 API keys
-├── run.sh                        # Script de arranque del sistema
-├── src/main/java/com/sistemainteligentes/
-│   ├── App.java                  # Punto de entrada informativo
-│   ├── practica/                 # Ejercicios de las transparencias
-│   ├── comun/                    # Modelos serializables compartidos
-│   │   ├── PreferenciasUsuario.java
-│   │   ├── DatosClima.java
-│   │   ├── LugarTuristico.java
-│   │   ├── Hotel.java
-│   │   ├── EventoTuristico.java
-│   │   └── InformePercepcion.java     # fragmento que cada percepción
-│   │                                    # manda al recomendador
-│   ├── usuario/                  # AgenteUsuario  (rama agente-controlador)
-│   │   ├── AgenteUsuario.java
-│   │   ├── InterfazPreferenciasFrame.java
-│   │   ├── EnviarPreferenciasBehaviour.java  # fan-out DF
-│   │   └── EsperarRespuestaBehaviour.java
-│   ├── percepcion/               # 4 agentes  (rama agente-percepcion)
-│   │   ├── BasePercepcionAgent.java        # ciclo de vida factorizado
-│   │   ├── AtenderConsultasBehaviour.java  # common behaviour
-│   │   ├── ClienteHttp.java                # helper HTTP (GET/POST)
-│   │   ├── ConfiguracionApis.java          # resuelve API keys
-│   │   ├── AgenteClima.java                # ┐
-│   │   ├── AgenteLugares.java              # │ 4 agentes
-│   │   ├── AgenteHoteles.java              # │ especificos
-│   │   ├── AgenteEventos.java              # ┘
-│   │   ├── FuenteClima.java                # ┐
-│   │   ├── FuenteLugares.java              # │ Clientes HTTP
-│   │   ├── FuenteHoteles.java              # │ por proveedor
-│   │   └── FuenteEventos.java              # ┘
-│   ├── recomendador/             # AgenteRecomendador (compañero/a)
-│   └── interfaz/                 # AgenteInterfaz (compañero/a)
-└── src/test/java/...
-```
+### Requisitos previos
 
-Cada rama contiene únicamente los agentes que le corresponden. La rama
-`master` ya tiene integrados todos los agentes implementados por Julio;
-los compañeros/as solo tienen que mergear sus ramas a master para
-completar el sistema.
+| Software | Versión mínima | Verificar con |
+|---|---|---|
+| Java JDK | 17 | `java -version` |
+| Apache Maven | 3.6.3 | `mvn -version` |
+| Git | cualquiera | `git --version` |
 
----
-
-## 3. Instalación
-
-### Requisitos
-
-- **Java 17** o superior (`java -version`).
-- **Maven 3.6.3** o superior (`mvn -version`).
-- JADE 4.6.0 — ya incluido en `lib/jade.jar` (no requiere instalación
-  externa).
-
-### Compilar
-
-Desde la raíz del proyecto:
+### Pasos
 
 ```bash
+# 1. Clonar el repositorio
+git clone https://github.com/Qub1ts/multi-agent.git
+cd multi-agent
+
+# 2. Compilar el proyecto (descarga las dependencias declaradas en pom.xml)
 mvn -DskipTests compile
 ```
 
-Si es la primera vez también:
-
-```bash
-mvn -DskipTests install:install-file \
-    -Dfile=lib/jade.jar \
-    -DgroupId=com.tilab.jade -DartifactId=jade -Dversion=4.6.0 -Dpackaging=jar
-```
-
-(Solo es necesario si Maven se queja de no encontrar JADE; el `pom.xml`
-referencia el JAR como `system` por defecto.)
+JADE 4.6.0 se distribuye **dentro del propio repositorio** (`lib/jade.jar`)
+para que no haya que descargarlo de ningún sitio externo. Maven lo
+referencia con scope `system` desde el `pom.xml`.
 
 ---
 
-## 4. Ejecución
+## 2. Captura de dependencias necesarias para instalar el proyecto
 
-JADE se lanza con la clase `jade.Boot`. El classpath debe incluir las clases
-compiladas y `lib/jade.jar`.
+### Dependencias gestionadas por Maven (`pom.xml`)
 
-### 4.1 Atajo recomendado: `./run.sh`
+```xml
+<dependencies>
+  <dependency>
+    <groupId>com.tilab.jade</groupId>
+    <artifactId>jade</artifactId>
+    <version>4.6.0</version>
+    <scope>system</scope>
+    <systemPath>${project.basedir}/lib/jade.jar</systemPath>
+  </dependency>
+  <dependency>
+    <groupId>org.json</groupId>
+    <artifactId>json</artifactId>
+    <version>20231013</version>
+  </dependency>
+  <dependency>
+    <groupId>org.junit.jupiter</groupId>
+    <artifactId>junit-jupiter-api</artifactId>
+    <version>5.6.0</version>
+    <scope>test</scope>
+  </dependency>
+  <dependency>
+    <groupId>org.junit.jupiter</groupId>
+    <artifactId>junit-jupiter-engine</artifactId>
+    <version>5.6.0</version>
+    <scope>test</scope>
+  </dependency>
+</dependencies>
+```
 
-Desde la raíz del proyecto, en una rama que contenga **los dos** agentes
-(p.e. `master` después de los merges, o tu rama local de integración):
+### APIs externas consumidas en tiempo de ejecución
+
+| Servicio | Proveedor | Plan gratuito | Variable de entorno |
+|---|---|---|---|
+| Clima | OpenWeatherMap *Current Weather Data* | 1 000 llamadas/día | `OPENWEATHER_API_KEY` |
+| Lugares turísticos | OpenTripMap (`/geoname` + `/radius`) | sin coste | `OPENTRIPMAP_API_KEY` |
+| Hoteles | Booking.com vía **RapidAPI** (`booking-com15.p.rapidapi.com`) | 100 llamadas/mes | `RAPIDAPI_KEY` |
+| Eventos | Ticketmaster *Discovery API* | 5 000 llamadas/día | `TICKETMASTER_API_KEY` |
+
+Las claves se proporcionan al sistema de una de estas tres formas (orden de
+precedencia):
+
+1. **Variables de entorno** (preferido para CI/defensa).
+2. Fichero local `apikeys.properties` en la raíz del proyecto. Está
+   incluido en `.gitignore`, por lo que **nunca se sube al repositorio**.
+   Una plantilla con los nombres de las claves está en
+   `apikeys.properties.example`.
+3. **Catálogo simulado de respaldo**: si una clave falta o la API falla,
+   ese agente concreto cae automáticamente a una lista fija para Madrid y
+   Barcelona. El resto del sistema sigue funcionando.
+
+---
+
+## 3. Instrucciones de ejecución
+
+### Opción A — script `run.sh` (recomendada)
+
+Desde la raíz del proyecto:
 
 ```bash
 ./run.sh
 ```
 
-El script compila si hace falta, monta el classpath con `lib/jade.jar` y
-`org.json` desde `~/.m2`, carga las claves (env var o `apikeys.properties`)
-y lanza JADE con los agentes en la misma plataforma.
+El script:
 
-Si solo quieres ver la consola RMA vacía y crear agentes a mano:
+1. Compila si hace falta.
+2. Verifica que las clases de los 7 agentes están presentes.
+3. Construye el classpath (`target/classes` + `lib/jade.jar` + `org.json`).
+4. Carga las claves de API desde variables de entorno o de
+   `apikeys.properties`.
+5. Lanza la plataforma JADE con los 7 agentes y abre la **consola RMA**.
+
+Hay también un modo sin display (servidor sin entorno gráfico):
 
 ```bash
-# macOS / Linux
-java -cp "target/classes:lib/jade.jar" jade.Boot -gui
-
-# Windows (PowerShell)
-java -cp "target\classes;lib\jade.jar" jade.Boot -gui
+./run.sh --headless
 ```
 
-El flag `-gui` abre la consola **RMA** (Remote Agent Management). Desde ahí
-puedes crear agentes a mano, lanzar el `DummyAgent` y el `SnifferAgent`, o
-inspeccionar el DF.
-
-### 4.2 Lanzar el sistema completo (a mano, sin `run.sh`)
-
-Recomendado para la defensa de la práctica: una única plataforma con
-todos los agentes registrados de golpe.
-
-**IMPORTANTE:** en `jade.Boot` los agentes van en **UN ÚNICO argumento
-separados por `;`** (no por espacios) y precedidos del flag `-agents`.
-Si los separas con espacios, JADE intenta cargar el primero como
-fichero de configuración y solo arranca uno. Esta es una trampa muy
-típica.
-
-Comando completo con los 5 agentes de Julio (los 4 de percepción + el
-usuario). Cuando los compañeros integren los suyos, basta con añadirlos
-a la lista:
+### Opción B — comando `jade.Boot` manual
 
 ```bash
 CP="target/classes:lib/jade.jar:$HOME/.m2/repository/org/json/json/20231013/json-20231013.jar"
+
 java -cp "$CP" jade.Boot -gui -agents \
   "clima:com.sistemainteligentes.percepcion.AgenteClima;\
 lugares:com.sistemainteligentes.percepcion.AgenteLugares;\
@@ -235,62 +135,28 @@ interfaz:com.sistemainteligentes.interfaz.AgenteInterfaz;\
 usuario:com.sistemainteligentes.usuario.AgenteUsuario"
 ```
 
-El orden dentro del `-agents` no afecta al flujo de mensajes (todos
-arrancan en paralelo en la misma plataforma). Lo único que importa es
-que todos estén vivos antes de que el usuario pulse "Enviar
-preferencias" en la ventana Swing; eso lo garantiza el propio
-`jade.Boot` antes de devolver el control.
+> En `jade.Boot` los agentes deben ir en **un único argumento separados
+> por `;`** y precedidos del flag `-agents`. Si se separan con espacios,
+> JADE interpreta el primero como fichero de configuración y arranca solo
+> uno.
 
-### 4.3 Lanzar solo los agentes de esta rama
+### Qué hacer una vez lanzado el sistema
 
-- **Rama `agente-controlador`** (Julio): solo el `AgenteUsuario`.
+1. Aparece la **consola RMA** de JADE y la **ventana Swing del
+   `AgenteUsuario`**.
+2. En la ventana del usuario están precargados los datos de ejemplo
+   (sección 4).
+3. Pulsar **Enviar preferencias**.
+4. En consola se ve el fan-out a los 4 agentes de percepción y la
+   recepción del recomendador.
+5. La **ventana del `AgenteInterfaz`** muestra la ruta final.
 
-  ```bash
-  java -cp "$CP" jade.Boot -gui -agents \
-      "usuario:com.sistemainteligentes.usuario.AgenteUsuario"
-  ```
+---
 
-  Abre la ventana Swing de captura de preferencias. Si no hay agentes
-  de percepción registrados en el DF, el botón de envío lo notifica.
+## 4. Datos de ejemplo para ejecutar la práctica
 
-- **Rama `agente-percepcion`** (Julio): los 4 agentes de percepción.
-
-  ```bash
-  java -cp "$CP" jade.Boot -gui -agents \
-      "clima:com.sistemainteligentes.percepcion.AgenteClima;\
-lugares:com.sistemainteligentes.percepcion.AgenteLugares;\
-hoteles:com.sistemainteligentes.percepcion.AgenteHoteles;\
-eventos:com.sistemainteligentes.percepcion.AgenteEventos"
-  ```
-
-  Cada uno registra dos servicios en el DF (`fuente-percepcion` para
-  descubrimiento dinámico y su tipo específico
-  `percepcion-{clima|lugares|hoteles|eventos}`) y queda escuchando
-  `REQUEST` con ontología `fuente-percepcion` y contenido
-  `comun.PreferenciasUsuario`. Tras consultar su API real reenvía un
-  `REQUEST` con `comun.InformePercepcion` al agente que ofrezca el
-  servicio `recomendar-ruta`.
-
-### 4.4 Ejecución multi‑máquina (defensa)
-
-JADE permite arrancar contenedores secundarios que se conecten al *Main
-Container*. En la máquina que hace de servidor:
-
-```bash
-java -cp "$CP" jade.Boot -gui -host 0.0.0.0
-```
-
-En cada cliente (sustituyendo `IP_SERVIDOR` por la IP del servidor):
-
-```bash
-java -cp "$CP" jade.Boot -container -host IP_SERVIDOR \
-    usuario:com.sistemainteligentes.usuario.AgenteUsuario
-```
-
-### 4.5 Datos de ejemplo
-
-La interfaz del `AgenteUsuario` se rellena por defecto con un caso de prueba
-extraído del enunciado:
+La ventana del `AgenteUsuario` se inicializa con un caso de prueba
+extraído directamente del enunciado:
 
 | Campo | Valor por defecto |
 |---|---|
@@ -299,501 +165,144 @@ extraído del enunciado:
 | Presupuesto máximo (€) | `50` |
 | Intereses | `museos, comida` |
 
-Al pulsar **Enviar preferencias** se construye un objeto
-`PreferenciasUsuario` y se hace **fan-out**: el `AgenteUsuario` busca en
-el DF todos los proveedores de `fuente-percepcion` y envía la misma
-petición a cada uno (clima, lugares, hoteles, eventos).
+Otros casos de prueba para la defensa (solo cambia los valores en la
+ventana antes de pulsar *Enviar*):
 
-Cada agente de percepción consulta una API externa real (configurable,
-ver sección 4.6). Si no hay conexión o la API falla, ese agente concreto
-cae a su catálogo simulado para que la demo siga funcionando.
-
-### 4.6 Configurar las APIs externas
-
-El sistema usa **cuatro APIs gratuitas**, una por cada agente de
-percepción:
-
-| Dato | Proveedor | Variables de entorno | Cómo conseguir la clave |
-|---|---|---|---|
-| Clima | [OpenWeatherMap](https://openweathermap.org/api) | `OPENWEATHER_API_KEY` | Registro → My API Keys → copiar |
-| Lugares | [OpenTripMap](https://opentripmap.io/docs) | `OPENTRIPMAP_API_KEY` | Registro → API key |
-| Hoteles | [Booking.com vía RapidAPI](https://rapidapi.com/DataCrawler/api/booking-com15) | `RAPIDAPI_KEY` | Registro en RapidAPI → suscribirse al plan "Basic" de **booking-com15** (gratis, 100 llamadas/mes) → copiar la clave del panel |
-| Eventos | [Ticketmaster Discovery](https://developer.ticketmaster.com/products-and-docs/apis/getting-started/) | `TICKETMASTER_API_KEY` | My Apps → Add new app → Consumer Key |
-
-> Nota sobre RapidAPI: tu clave del panel de RapidAPI sirve para *todas*
-> las APIs a las que te suscribas, pero el `AgenteHoteles` está
-> programado contra el host concreto `booking-com15.p.rapidapi.com`. Si
-> ese host no aparece en tu panel, recibirás `HTTP 403 "You are not
-> subscribed to this API."` y el agente caerá al catálogo simulado.
-
-Hay **dos formas** de proporcionar las claves a los agentes. Cada agente
-busca primero en la variable de entorno; si no existe, lee
-`apikeys.properties`.
-
-**Opción A — variables de entorno (recomendada para CI/defensa):**
-
-```bash
-export OPENWEATHER_API_KEY=xxxxxxxx
-export OPENTRIPMAP_API_KEY=xxxxxxxx
-export RAPIDAPI_KEY=xxxxxxxx
-export TICKETMASTER_API_KEY=xxxxxxxx
-./run.sh
-```
-
-**Opción B — fichero local `apikeys.properties`:**
-
-```bash
-cp apikeys.properties.example apikeys.properties
-# editar apikeys.properties y rellenar las 5 claves
-```
-
-El fichero `apikeys.properties` está incluido en `.gitignore`: nunca se
-subirá al repo. **No commitéis las claves bajo ningún concepto.**
-
-Si alguna clave está vacía o la API falla, ese agente concreto **cae
-automáticamente** a su catálogo simulado (datos fijos para Madrid y
-Barcelona). El resto de agentes que sí tengan clave siguen consumiendo
-sus APIs reales. Eso garantiza que la demo siempre tira aunque el wifi
-falle el día de la defensa.
-
----
-
-## 5. Contratos de mensajería (para los compañeros/as)
-
-El flujo del pipeline es:
-`Usuario → (fan-out) → 4 agentes de percepción → Recomendador → Interfaz`.
-
-Todos los mensajes que salen del `AgenteUsuario` para una misma sesión
-comparten el **mismo `conversationId`** (formato `ruta-<timestamp>`). El
-`AgenteRecomendador` debe acumular los `InformePercepcion` que vayan
-llegando con ese mismo id hasta tener los `N` esperados (o un timeout)
-para producir la ruta.
-
-| De → A | Performativa | Ontología | Contenido (`setContentObject`) |
-|---|---|---|---|
-| Usuario → cada agente percepción | `REQUEST` | `fuente-percepcion` | `comun.PreferenciasUsuario` |
-| Percepción → Usuario | `INFORM` (ACK) | `fuente-percepcion` | `String` informando que su informe ya salió |
-| Percepción → Usuario | `FAILURE` (si falla) | `fuente-percepcion` | `String` con motivo |
-| Percepción → Recomendador | `REQUEST` | `recomendar-ruta` | `comun.InformePercepcion` (solo se rellena el fragmento que corresponde a su fuente; campo `fuente` = "clima"/"lugares"/"hoteles"/"eventos") |
-| Recomendador → Interfaz | `INFORM` | `mostrar-ruta` | `comun.RutaRecomendada` (a definir por el equipo del recomendador) |
-| Recomendador → Usuario | `INFORM` (opcional) | `recomendar-ruta` | confirmación o resumen en `String` |
-
-Servicios en el DF:
-
-- `AgenteClima` registra `fuente-percepcion` + `percepcion-clima`.
-- `AgenteLugares` registra `fuente-percepcion` + `percepcion-lugares`.
-- `AgenteHoteles` registra `fuente-percepcion` + `percepcion-hoteles`.
-- `AgenteEventos` registra `fuente-percepcion` + `percepcion-eventos`.
-- `AgenteRecomendador` (compañero) debe registrar `recomendar-ruta`.
-- `AgenteInterfaz` (compañero) debe registrar `mostrar-ruta`.
-- `AgenteUsuario` no registra servicio (es un cliente).
-
-Los `MessageTemplate` de cada agente combinan `MatchPerformative` con
-`MatchOntology` para evitar que un comportamiento "robe" mensajes
-destinados a otro.
-
----
-
-## 6. Guía paso a paso para los compañeros/as
-
-Esta sección tiene todo lo que necesitan los compañeros para integrar sus
-dos agentes (`AgenteRecomendador` y `AgenteInterfaz`) **sin tener que
-mirar el código de Julio**. Solo deben seguir los pasos, copiar los
-esqueletos y rellenar la lógica de su agente.
-
-### 6.1 Setup inicial (5 minutos)
-
-```bash
-# 1. Clonar el repo
-git clone https://github.com/Qub1ts/multi-agent.git
-cd multi-agent
-
-# 2. Crear tu rama desde master
-git checkout master
-git checkout -b agente-recomendador          # o "agente-interfaz", como prefieras
-git push -u origin agente-recomendador
-
-# 3. Comprobar que el sistema base compila
-mvn -DskipTests compile
-```
-
-Las claves de API no son necesarias para vuestros agentes (vosotros no
-llamáis a ninguna API). Si quieres probar el flujo entero localmente,
-pídele a Julio el `apikeys.properties` o trabaja sin claves (los agentes
-de percepción caerán a su catálogo simulado pero todo funciona).
-
-### 6.2 Para el equipo del **AgenteRecomendador**
-
-**Qué hace tu agente:**
-1. Se registra en el DF como `recomendar-ruta`.
-2. Recibe `REQUEST` con un `InformePercepcion` de cada uno de los 4
-   agentes de percepción (clima, lugares, hoteles, eventos). Cada
-   fragmento llega con su propio mensaje pero **todos comparten el
-   mismo `conversationId`** (formato `ruta-<timestamp>`) — así sabes
-   qué fragmentos pertenecen a la misma sesión.
-3. Acumula los fragmentos por `conversationId` hasta tener los 4 (o
-   vence un timeout, ej. 8 s).
-4. Filtra/puntúa los lugares y los hoteles según las preferencias del
-   usuario (`PreferenciasUsuario` viene dentro del propio
-   `InformePercepcion`).
-5. Emite un `INFORM` al `AgenteInterfaz` con la ruta final.
-
-**Crea estos dos ficheros** en
-`src/main/java/com/sistemainteligentes/recomendador/`:
-
-📄 `AgenteRecomendador.java`
-
-```java
-package com.sistemainteligentes.recomendador;
-
-import jade.core.Agent;
-import jade.domain.DFService;
-import jade.domain.FIPAException;
-import jade.domain.FIPAAgentManagement.DFAgentDescription;
-import jade.domain.FIPAAgentManagement.ServiceDescription;
-
-public class AgenteRecomendador extends Agent {
-    @Override
-    protected void setup() {
-        registrarServicio();
-        addBehaviour(new RecogerFragmentosBehaviour(this));
-        System.out.println("[Recomendador] Listo.");
-    }
-
-    private void registrarServicio() {
-        DFAgentDescription dfd = new DFAgentDescription();
-        dfd.setName(getAID());
-        ServiceDescription sd = new ServiceDescription();
-        sd.setType("recomendar-ruta");
-        sd.setName("Recomendador de rutas turisticas");
-        dfd.addServices(sd);
-        try { DFService.register(this, dfd); }
-        catch (FIPAException e) { e.printStackTrace(); doDelete(); }
-    }
-
-    @Override
-    protected void takeDown() {
-        try { DFService.deregister(this); } catch (FIPAException e) { /* ignore */ }
-    }
-}
-```
-
-📄 `RecogerFragmentosBehaviour.java`
-
-```java
-package com.sistemainteligentes.recomendador;
-
-import com.sistemainteligentes.comun.*;
-import jade.core.AID;
-import jade.core.Agent;
-import jade.core.behaviours.CyclicBehaviour;
-import jade.domain.DFService;
-import jade.domain.FIPAException;
-import jade.domain.FIPAAgentManagement.DFAgentDescription;
-import jade.domain.FIPAAgentManagement.ServiceDescription;
-import jade.lang.acl.ACLMessage;
-import jade.lang.acl.MessageTemplate;
-import jade.lang.acl.UnreadableException;
-import java.io.IOException;
-import java.util.*;
-
-public class RecogerFragmentosBehaviour extends CyclicBehaviour {
-
-    // Filtro bloqueante: REQUEST con ontologia "recomendar-ruta"
-    private static final MessageTemplate FILTRO = MessageTemplate.and(
-        MessageTemplate.MatchPerformative(ACLMessage.REQUEST),
-        MessageTemplate.MatchOntology("recomendar-ruta"));
-
-    // Estado por conversationId: lista de fragmentos recibidos
-    private final Map<String, List<InformePercepcion>> sesiones = new HashMap<>();
-
-    public RecogerFragmentosBehaviour(Agent a) { super(a); }
-
-    @Override
-    public void action() {
-        ACLMessage msg = myAgent.receive(FILTRO);
-        if (msg == null) { block(); return; }
-
-        try {
-            InformePercepcion frag = (InformePercepcion) msg.getContentObject();
-            String conv = msg.getConversationId();
-            sesiones.computeIfAbsent(conv, k -> new ArrayList<>()).add(frag);
-            System.out.println("[Recomendador] Fragmento " + frag.getFuente()
-                + " recibido (conv=" + conv + ")");
-
-            // Cuando tengamos los 4 fragmentos (uno por cada fuente de
-            // percepcion), procesamos y enviamos la ruta.
-            if (sesiones.get(conv).size() >= 4) {
-                List<InformePercepcion> todos = sesiones.remove(conv);
-                procesarYEnviar(conv, todos);
-            }
-        } catch (UnreadableException e) {
-            System.err.println("[Recomendador] Contenido invalido: " + e.getMessage());
-        }
-    }
-
-    private void procesarYEnviar(String conv, List<InformePercepcion> fragmentos) {
-        // TODO: aqui va VUESTRA logica de discriminacion/puntuacion.
-        // De momento solo construye una ruta "trivial" pegando todo.
-        PreferenciasUsuario prefs = fragmentos.get(0).getPreferencias();
-        StringBuilder ruta = new StringBuilder("Ruta para " + prefs.getCiudad() + ":\n");
-        for (InformePercepcion f : fragmentos) {
-            ruta.append("- ").append(f).append("\n");
-        }
-        // Aplicar reglas: filtrar por presupuesto, ordenar por valoracion,
-        // descartar lugares cerrados a la hora prevista, etc.
-
-        enviarAlInterfaz(conv, ruta.toString());
-    }
-
-    private void enviarAlInterfaz(String conv, String contenidoRuta) {
-        DFAgentDescription plantilla = new DFAgentDescription();
-        ServiceDescription sd = new ServiceDescription();
-        sd.setType("mostrar-ruta");
-        plantilla.addServices(sd);
-        try {
-            DFAgentDescription[] r = DFService.search(myAgent, plantilla);
-            if (r.length == 0) {
-                System.err.println("[Recomendador] No hay AgenteInterfaz en el DF.");
-                return;
-            }
-            AID interfaz = r[0].getName();
-            ACLMessage info = new ACLMessage(ACLMessage.INFORM);
-            info.addReceiver(interfaz);
-            info.setOntology("mostrar-ruta");
-            info.setConversationId(conv);
-            // Idealmente enviad un objeto serializable RutaRecomendada
-            // (creadla en comun/). Como ejemplo basico mandamos un String:
-            info.setContent(contenidoRuta);
-            myAgent.send(info);
-            System.out.println("[Recomendador] Ruta enviada al interfaz.");
-        } catch (FIPAException e) {
-            e.printStackTrace();
-        }
-    }
-}
-```
-
-> **Cuántos fragmentos esperar:** el ejemplo asume 4 (los agentes de
-> Julio). Si en algún momento añadimos un quinto agente de percepción,
-> cambiad `>= 4` por una consulta dinámica al DF al recibir el primer
-> fragmento (`DFService.search` por `fuente-percepcion` y contar). O
-> añadid un timeout con un `WakerBehaviour` que dispare la ruta con lo
-> que haya llegado pasados, ej., 8 s.
-
-**Mejora recomendada (opcional pero queda mejor en la defensa):** crea
-una clase `RutaRecomendada` en `comun/` con los campos que decidáis
-(lista de paradas con horario, hotel elegido, costes totales,
-descripción del clima, etc.) y enviadla con `setContentObject` en vez
-de `setContent(String)`. Así el `AgenteInterfaz` recibe un objeto
-estructurado en vez de tener que parsear texto.
-
-### 6.3 Para el equipo del **AgenteInterfaz**
-
-**Qué hace tu agente:**
-1. Se registra en el DF como `mostrar-ruta`.
-2. Recibe `INFORM` del `AgenteRecomendador` con la ruta final.
-3. Muestra la ruta en una ventana Swing (puedes inspirarte en
-   `usuario/InterfazPreferenciasFrame.java` para la parte de UI).
-
-📄 `src/main/java/com/sistemainteligentes/interfaz/AgenteInterfaz.java`
-
-```java
-package com.sistemainteligentes.interfaz;
-
-import jade.core.Agent;
-import jade.core.behaviours.CyclicBehaviour;
-import jade.domain.DFService;
-import jade.domain.FIPAException;
-import jade.domain.FIPAAgentManagement.DFAgentDescription;
-import jade.domain.FIPAAgentManagement.ServiceDescription;
-import jade.lang.acl.ACLMessage;
-import jade.lang.acl.MessageTemplate;
-import javax.swing.*;
-import java.awt.*;
-
-public class AgenteInterfaz extends Agent {
-
-    private JFrame frame;
-    private JTextArea texto;
-
-    @Override
-    protected void setup() {
-        registrarServicio();
-        construirVentana();
-        addBehaviour(new RecibirRutaBehaviour());
-        System.out.println("[Interfaz] Listo.");
-    }
-
-    private void registrarServicio() {
-        DFAgentDescription dfd = new DFAgentDescription();
-        dfd.setName(getAID());
-        ServiceDescription sd = new ServiceDescription();
-        sd.setType("mostrar-ruta");
-        sd.setName("Visor de rutas turisticas");
-        dfd.addServices(sd);
-        try { DFService.register(this, dfd); }
-        catch (FIPAException e) { e.printStackTrace(); doDelete(); }
-    }
-
-    private void construirVentana() {
-        SwingUtilities.invokeLater(() -> {
-            frame = new JFrame("Ruta recomendada");
-            texto = new JTextArea(20, 60);
-            texto.setEditable(false);
-            frame.add(new JScrollPane(texto), BorderLayout.CENTER);
-            frame.pack();
-            frame.setLocationRelativeTo(null);
-            frame.setVisible(true);
-            frame.setAlwaysOnTop(true); frame.toFront(); frame.setAlwaysOnTop(false);
-        });
-    }
-
-    void mostrar(String contenido) {
-        SwingUtilities.invokeLater(() ->
-            texto.append(contenido + "\n----\n"));
-    }
-
-    @Override
-    protected void takeDown() {
-        try { DFService.deregister(this); } catch (FIPAException e) { /* ignore */ }
-        if (frame != null) SwingUtilities.invokeLater(frame::dispose);
-    }
-
-    private class RecibirRutaBehaviour extends CyclicBehaviour {
-        private final MessageTemplate filtro = MessageTemplate.and(
-            MessageTemplate.MatchPerformative(ACLMessage.INFORM),
-            MessageTemplate.MatchOntology("mostrar-ruta"));
-
-        @Override
-        public void action() {
-            ACLMessage msg = myAgent.receive(filtro);
-            if (msg == null) { block(); return; }
-            String contenido;
-            try {
-                Object o = msg.getContentObject();
-                contenido = o != null ? o.toString() : msg.getContent();
-            } catch (jade.lang.acl.UnreadableException e) {
-                contenido = msg.getContent();
-            }
-            System.out.println("[Interfaz] Ruta recibida.");
-            mostrar(contenido);
-        }
-    }
-}
-```
-
-### 6.4 Probar tu agente integrado con los de Julio
-
-Mientras desarrollas tu agente en tu rama, lo más cómodo es **mergear
-master de vez en cuando** para tener al día los 5 agentes de Julio:
-
-```bash
-git fetch origin
-git merge origin/master
-```
-
-Para lanzar **el sistema completo** desde tu rama (los 5 de Julio + el
-tuyo), añade tu agente al comando de `run.sh` o lanza JADE a mano:
-
-```bash
-mvn -DskipTests compile
-CP="target/classes:lib/jade.jar:$HOME/.m2/repository/org/json/json/20231013/json-20231013.jar"
-java -cp "$CP" jade.Boot -gui -agents \
-  "clima:com.sistemainteligentes.percepcion.AgenteClima;\
-lugares:com.sistemainteligentes.percepcion.AgenteLugares;\
-hoteles:com.sistemainteligentes.percepcion.AgenteHoteles;\
-eventos:com.sistemainteligentes.percepcion.AgenteEventos;\
-recomendador:com.sistemainteligentes.recomendador.AgenteRecomendador;\
-interfaz:com.sistemainteligentes.interfaz.AgenteInterfaz;\
-usuario:com.sistemainteligentes.usuario.AgenteUsuario"
-```
-
-Pulsa "Enviar preferencias" en la ventana del usuario. En consola
-deberías ver los 4 agentes de percepción consultar sus APIs, mandar sus
-fragmentos al recomendador, y al recomendador montar la ruta y
-enviársela al interfaz. La ventana del interfaz debe pintarla.
-
-### 6.5 Subir tu rama y mergear a master
-
-Cuando tu agente esté listo:
-
-```bash
-git add src/main/java/com/sistemainteligentes/recomendador/   # o /interfaz/
-git commit -m "Implementar AgenteRecomendador"                # o AgenteInterfaz
-git push origin agente-recomendador                            # o agente-interfaz
-```
-
-Y abrid un Pull Request en GitHub contra `master`. Como cada agente
-vive en su propio subpaquete, los conflictos deberían ser mínimos o
-inexistentes.
-
-### 6.6 Resumen de los 7 agentes y quién toca qué
-
-| Quién | Crear estos paquetes | Llamar a APIs | Registrar en DF | Recibe mensajes |
+| Caso | Ciudad | Días | Presupuesto | Intereses |
 |---|---|---|---|---|
-| Julio (hecho) | `usuario/`, `percepcion/` | sí (las 4) | sí (4 percepción) | sí |
-| Equipo Recomendador | `recomendador/` | no | sí (`recomendar-ruta`) | REQUEST con `InformePercepcion` |
-| Equipo Interfaz | `interfaz/` | no | sí (`mostrar-ruta`) | INFORM con la ruta |
+| Demo enunciado | Madrid | 1 | 50 € | museos, comida |
+| Fin de semana económico | Barcelona | 2 | 150 € | naturaleza, museos |
+| Ruta cultural | Sevilla | 3 | 300 € | cultura, monumentos |
+| Lluvia (norte) | Bilbao | 2 | 200 € | gastronomia, museos |
+
+Las cuatro APIs cubren todo el mundo, así que cualquier ciudad real es
+válida. Si la ciudad no existe en alguna API, ese agente concreto
+devolverá un `InformePercepcion` con `errorMensaje` y los demás
+construirán la ruta sin esa fuente.
 
 ---
 
-## 7. Cumplimiento de los requisitos del enunciado
+## 5. Diagrama de la arquitectura del sistema
 
-- [x] Plataforma JADE 4.6.
-- [x] Agente de percepción/adquisición de información externa: **4**
-      (`AgenteClima`, `AgenteLugares`, `AgenteHoteles`, `AgenteEventos`),
-      cada uno consumiendo una API web real distinta.
-- [ ] Agente con cálculo/inteligencia (`AgenteRecomendador`, en otra
-      rama, en desarrollo por el equipo).
-- [x] Agente con interfaz de usuario de entrada (`AgenteUsuario`,
-      ventana Swing).
-- [ ] Agente con interfaz de usuario de salida (`AgenteInterfaz`,
-      en desarrollo por el equipo).
-- [x] Comportamientos JADE (`CyclicBehaviour`, `OneShotBehaviour`,
-      `SimpleBehaviour` con filtrado; `BasePercepcionAgent` como
-      jerarquía de comportamiento reutilizable).
-- [x] Registro y búsqueda en el **Directory Facilitator** (los 4
-      agentes de percepción registran 2 servicios cada uno; el
-      `AgenteUsuario` hace descubrimiento dinámico para el fan-out).
-- [x] Intercambio de mensajes **ACL** con filtros y `block()` en modo
-      bloqueante (todos los `Behaviour` ciclicos usan
-      `MessageTemplate.and(MatchPerformative, MatchOntology)`).
+```
+                       +-----------------+
+                       |  AgenteUsuario  |   (ventana Swing
+                       |  (Swing GUI)    |    InterfazPreferenciasFrame)
+                       +────────┬────────+
+                                │  1) busca DF "fuente-percepcion"
+                                │  2) REQUEST(PreferenciasUsuario)
+                                │     fan-out a los 4 agentes
+        ┌─────────────┬─────────┴─────────┬─────────────┐
+        ▼             ▼                   ▼             ▼
+ +─────────────+  +──────────────+  +──────────────+  +──────────────+
+ | AgenteClima |  | AgenteLugares|  | AgenteHoteles|  | AgenteEventos|
+ | OpenWeather |  | OpenTripMap  |  | Booking      |  | Ticketmaster |
+ |             |  |              |  | (RapidAPI)   |  |  Discovery   |
+ +──────┬──────+  +──────┬───────+  +──────┬───────+  +──────┬───────+
+        │ REQUEST(InformePercepcion: solo SU fragmento)      │
+        │ mismo conversationId para que el recomendador      │
+        │ pueda agrupar los fragmentos                       │
+        └─────────────┬─────────────────────────┬────────────┘
+                      ▼                         ▼
+                +───────────────────────────────+
+                |       AgenteRecomendador       |
+                |  • acumula los 4 fragmentos    |
+                |    por conversationId          |
+                |  • motor de scoring:           |
+                |    0.45·int + 0.25·pres        |
+                |    + 0.15·clima + 0.10·pop     |
+                |    + 0.05·div                  |
+                |  • construye RutaRecomendada   |
+                +────────────────┬───────────────+
+                                 │ INFORM(RutaRecomendada)
+                                 ▼
+                +───────────────────────────────+
+                |        AgenteInterfaz         |
+                |  ventana Swing con la ruta:   |
+                |  • lugares puntuados          |
+                |  • hotel recomendado          |
+                |  • eventos sugeridos          |
+                |  • coste total estimado       |
+                +───────────────────────────────+
 
-### 7.1 Verificación de las 4 APIs externas (smoke test del 23-may)
+  ─────────────────────────  Servicios en el DF  ─────────────────────────
+  fuente-percepcion ........ los 4 agentes de percepción (descubrimiento
+                              dinámico desde el AgenteUsuario)
+  percepcion-clima / lugares / hoteles / eventos ..... uno por agente
+  recomendar-ruta .......... AgenteRecomendador
+  mostrar-ruta ............. AgenteInterfaz
+```
 
-| API | Tiempo | Verificación |
-|---|---|---|
-| OpenWeatherMap | ~340 ms | `Cielo claro, 27.3 grados`, humedad 28 % (Madrid en tiempo real) |
-| OpenTripMap | ~360 ms | 20 lugares reales (Café Lorenzini, Serafina, …) |
-| Booking via RapidAPI | ~2.6 s | 10 hoteles reales (Hostal Bernabeu II 101.94 €, Urban Hive Madrid 360 €, Room Gran Vía 46.5 €, …) |
-| Ticketmaster Discovery | ~430 ms | 15 eventos reales (Museo Banksy, Bosque Encantado, …) |
+Todos los agentes se comunican mediante **mensajes ACL FIPA**. Cada
+`CyclicBehaviour` filtra los suyos con `MessageTemplate.and(perf, onto)` y
+se bloquea con `block()` hasta que llega un mensaje que case con el
+filtro (cumple el requisito de *al menos un filtro de mensajes en modo
+bloqueante*).
 
-Si alguna API falla (rate limit, cambio de schema), el agente
-correspondiente cae automáticamente a su catálogo simulado y deja un
-mensaje de error en `InformePercepcion.errorMensaje` para que el
-recomendador sepa que esa fuente no es fiable en esa sesión.
+### Estructura del repositorio
+
+```
+proyecto/
+├── lib/jade.jar                       # JADE 4.6.0 (sin descarga externa)
+├── pom.xml                            # Build Maven (Java 17, org.json)
+├── run.sh                             # Script de arranque
+├── apikeys.properties.example         # Plantilla de claves (sin valores)
+├── README.md                          # Este documento
+└── src/main/java/com/sistemainteligentes/
+    ├── App.java
+    ├── comun/                         # Modelos serializables compartidos
+    │   ├── PreferenciasUsuario.java
+    │   ├── InformePercepcion.java
+    │   ├── DatosClima.java
+    │   ├── LugarTuristico.java
+    │   ├── Hotel.java
+    │   └── EventoTuristico.java
+    ├── usuario/                       # AgenteUsuario + GUI Swing
+    ├── percepcion/                    # 4 agentes + fuentes HTTP + base abstracta
+    ├── recomendador/                  # AgenteRecomendador + motor de scoring
+    └── interfaz/                      # AgenteInterfaz + ventana de salida
+```
 
 ---
 
-## 8. Declaración de uso de IA
+## 6. Declaración de uso de IA
 
-Se ha utilizado un asistente IA (Claude, Anthropic) para:
+Se ha utilizado un asistente de IA (**Claude**, Anthropic) en las
+siguientes tareas del proyecto:
 
-- Estructurar el repositorio y dividir el trabajo en ramas por agente.
-- Redactar este `README.md` y los comentarios de los agentes.
-- Sugerir el patrón de `Behaviour` + `MessageTemplate` + `block()` para la
-  recepción de mensajes a partir de las transparencias de clase.
+- **Estructura del repositorio y división del trabajo.** El asistente
+  propuso el esqueleto de paquetes (`usuario/`, `percepcion/`,
+  `recomendador/`, `interfaz/`, `comun/`) y la estrategia de ramas Git
+  para que los tres miembros del grupo pudieran trabajar en paralelo sin
+  conflictos de merge.
+- **Refactor a clase base.** La jerarquía `BasePercepcionAgent` que
+  factoriza el ciclo de vida común de los cuatro agentes de percepción
+  (registro en el DF, behaviour cíclico bloqueante, reenvío al
+  recomendador con `conversationId` propagado) se diseñó con apoyo del
+  asistente.
+- **Integración de las cuatro APIs externas.** El asistente generó los
+  esqueletos de los clientes HTTP (`FuenteClima`, `FuenteLugares`,
+  `FuenteHoteles`, `FuenteEventos`) usando `java.net.http.HttpClient` y
+  `org.json`, incluida la autenticación por cabeceras `X-RapidAPI-Key /
+  X-RapidAPI-Host` para Booking. Los autores verificaron y ajustaron los
+  endpoints (p.ej. corregir `languagecode=es-es` a `languagecode=es` en
+  RapidAPI Booking) tras hacer las llamadas reales.
+- **Esqueletos para los compañeros.** Los puntos de partida del
+  `AgenteRecomendador` (`Map<conversationId, fragmentos>` con
+  `MessageTemplate` bloqueante) y del `AgenteInterfaz` (`CyclicBehaviour`
+  + Swing) se redactaron con apoyo del asistente; sobre esa base los
+  miembros del equipo implementaron el motor de scoring final y la
+  ventana de visualización.
+- **Documentación.** Este `README.md`, los `javadoc` de las clases
+  principales y los comentarios explicativos en el código se han
+  redactado con apoyo del asistente.
+- **Pruebas end‑to‑end.** Los *smoke tests* contra las cuatro APIs
+  reales y el flujo completo de los 7 agentes (lanzamiento JADE, fan-out,
+  agregación, ruta final) se diseñaron y ejecutaron con asistencia para
+  capturar los logs antes de la defensa.
 
 Toda la lógica funcional ha sido revisada por los autores y se ajusta al
-material visto en clase (ver `Diseño Práctico/` con las transparencias de
-JADE 2025‑2026).
-
----
-
-## 9. Material de prácticas
-
-El paquete `com.sistemainteligentes.practica` contiene los ejemplos
-trabajados en las transparencias 2 (Creación de agentes y comportamientos) y
-3 (Mensajería y Directorio). Se conservan como material de estudio y
-referencia; no forman parte del sistema multiagente entregable.
+material visto en clase (transparencias de JADE 2025‑2026). El registro
+y consulta de servicios en el Directory Facilitator, el uso de
+`MessageTemplate` con filtros bloqueantes y la mensajería ACL siguen
+literalmente los patrones presentados en las sesiones de teoría.
