@@ -2,14 +2,15 @@
 
 Práctica de **Sistemas Inteligentes**.
 
-# Autores:
->Julio Lucero
->Samuel Soriano
->Lama Najjar
+## Autores
 
-El sistema recomienda rutas turísticas personalizadas consultando información
-real de la web (clima, lugares, hoteles y eventos) y filtrándola según las
-preferencias del usuario.
+| Nombre | Correo Electrónico |
+| :--- | :--- |
+| Julio Lucero | [julio.lucero@alumnos.upm.es](mailto:julio.lucero@alumnos.upm.es) |
+| Samuel Soriano | [s.sorianochavez@alumnos.upm.es](mailto:s.sorianochavez@alumnos.upm.es) |
+| Lama Najjar | [lama.najjar@alumnos.upm.es](mailto:lama.najjar@alumnos.upm.es) |
+
+El sistema recomienda rutas turísticas personalizadas consultando información real de la web (clima, lugares, hoteles y eventos) y filtrándola según las preferencias del usuario.
 
 ---
 
