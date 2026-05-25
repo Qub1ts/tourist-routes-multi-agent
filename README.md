@@ -1,14 +1,15 @@
 # Sistema multiagente de recomendación de rutas turísticas
 
-Práctica de **Sistemas Inteligentes** — curso 2025‑2026 (UPM, ETSI Informáticos).
+Práctica de **Sistemas Inteligentes**.
+
+# Autores:
+>Julio Lucero
+>Samuel Soriano
+>Lama Najjar
 
 El sistema recomienda rutas turísticas personalizadas consultando información
 real de la web (clima, lugares, hoteles y eventos) y filtrándola según las
 preferencias del usuario.
-
-> *Ejemplo del enunciado:* «Tengo 1 día en Madrid, quiero gastar poco y me
-> interesan museos y comida.» El sistema consulta cuatro APIs externas en
-> paralelo y devuelve una ruta puntuada con costes aproximados.
 
 ---
 
@@ -16,10 +17,10 @@ preferencias del usuario.
 
 ### Requisitos previos
 
-| Software | Versión mínima | Verificar con |
-|---|---|---|
-| Java JDK | 17 | `java -version` |
-| Apache Maven | 3.6.3 | `mvn -version` |
+| Software | Versión mínima |
+|---|---|
+| Java JDK | 17 |
+| Apache Maven | 3.6.3 |
 
 ```bash
 # 1. Clonar el repositorio
